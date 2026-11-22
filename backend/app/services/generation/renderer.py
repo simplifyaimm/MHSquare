@@ -24,12 +24,12 @@ class RenderResult:
 
 
 def render(*, html: str, css: str, js: str, theme_css: str, width: int, height: int, fps: int,
-           duration_ms: int, scale: float = 1.0) -> RenderResult:  # fmt: skip
+           duration_ms: int, scale: float = 1.0, probe: dict | None = None) -> RenderResult:  # fmt: skip
     s = get_settings()
     job = uuid.uuid4().hex[:24]
     body = {
         "job_id": job, "html": html, "css": css, "js": js, "theme_css": theme_css,
-        "width": width, "height": height, "fps": fps, "duration_ms": duration_ms, "scale": scale,
+        "width": width, "height": height, "fps": fps, "duration_ms": duration_ms, "scale": scale, "probe": probe,
     }  # fmt: skip
     try:
         r = httpx.post(f"{s.motion_renderer_url}/render", json=body, timeout=300)
@@ -56,3 +56,17 @@ def collect(result: RenderResult, dest_dir: Path) -> tuple[Path, Path | None]:
         t = dest_dir / "thumb.jpg"
         shutil.move(str(result.thumb), t)
     return v, t
+
+
+def standalone(*, html: str, css: str, js: str, theme_css: str, width: int, height: int, title: str) -> str:
+    """Self-contained auto-playing HTML of a scene (for sharing or opening in a browser)."""
+    s = get_settings()
+    body = {"job_id": uuid.uuid4().hex[:24], "html": html, "css": css, "js": js, "theme_css": theme_css,
+            "width": width, "height": height, "fps": 30, "duration_ms": 1000, "title": title}  # fmt: skip
+    try:
+        r = httpx.post(f"{s.motion_renderer_url}/standalone", json=body, timeout=30)
+    except httpx.HTTPError as e:
+        raise RenderError(f"motion renderer unreachable: {e}") from e
+    if r.status_code != 200:
+        raise RenderError(f"renderer HTTP {r.status_code}: {r.text[:300]}")
+    return r.json()["html"]

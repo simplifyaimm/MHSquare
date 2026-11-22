@@ -25,6 +25,9 @@ model_list:
   # draft narration from a script (testing without a recording)
   - model_name: tts
     litellm_params: { model: os.environ/MH_MODEL_TTS }
+  # embeddings (topic registry repeat check)
+  - model_name: embed
+    litellm_params: { model: os.environ/MH_MODEL_EMBED }
 
 litellm_settings:
   drop_params: true

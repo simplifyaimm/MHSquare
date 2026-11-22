@@ -6,10 +6,8 @@ SEGMENTS with exact timestamps, which visual types are available, and whether fa
 
 ## Visual types
 - code_animation — a motion-graphics scene rendered from code (HTML/CSS + GSAP) in one of two house themes:
-    * theme "tech": the explainer look — deep navy background with a soft vignette, glassy cards with thin
-      borders, small uppercase letter-spaced eyebrow labels in blue, big bold titles, code cards with
-      line highlights, chips, counters, hub-and-spoke diagrams, curved connectors, split-screen
-      comparisons. Text is crisp and readable. Use it for anything technical: architecture, data flow,
+    * theme "tech": the brand explainer look described in the BRAND brief — diagrams, pills, LEDs, code
+      windows, counters, hub-and-spoke wiring, split-screen comparisons. Crisp, readable, visual-first. Use it for anything technical: architecture, data flow,
       APIs, code, comparisons, numbers, lists, definitions.
     * theme "story": warm flat 2D cartoon illustration drawn in SVG — soft teal backgrounds, friendly
       characters with clean outlines, speech bubbles, icons popping in with small sparkles, gentle camera
@@ -26,7 +24,8 @@ SEGMENTS with exact timestamps, which visual types are available, and whether fa
 2. Shots are usually 4–10 s (1–3 segments). Cut where the idea changes, not mid-thought.
 3. Prefer code_animation whenever on-screen text, labels, diagrams, numbers or code must be readable.
 4. ai_clip shots must be ≤ 8 s.
-5. If face-cam exists, at least 30% of runtime is a_roll (intro, opinions, transitions). Otherwise never use a_roll.
+5. Follow the BRAND brief's content-type layout rules — they override everything here (e.g. long-form never
+   uses a_roll shots; the face cam is a persistent picture-in-picture circle). Never use a_roll without face-cam.
 6. Do not repeat the same visual idea on consecutive shots. Vary layout (centered card, split screen,
    diagram, code, list, hub) so the video breathes.
 7. Consecutive "tech" shots explaining one concept may continue the same diagram: set
@@ -59,11 +58,14 @@ Reply with ONLY a JSON object (no prose) of this shape:
 
 
 def user_message(script: str, segments: list[dict], duration_ms: int, has_facecam: bool,
-                 allowed: list[str], style_notes: str) -> str:  # fmt: skip
+                 allowed: list[str], style_notes: str, brand_brief: str = "") -> str:  # fmt: skip
     seg_lines = "\n".join(
         f"[{s['n']}] {s['start_ms'] / 1000:.2f}–{s['end_ms'] / 1000:.2f}s  {s['text']}" for s in segments
     )
-    return f"""Available visual types: {", ".join(allowed)}
+    return f"""## BRAND brief (Style Profile — follow exactly)
+{brand_brief or "(none)"}
+
+Available visual types: {", ".join(allowed)}
 Face-cam: {"yes" if has_facecam else "no"}
 Total duration: {duration_ms / 1000:.1f}s
 Creator's style notes: {style_notes.strip() or "(none)"}

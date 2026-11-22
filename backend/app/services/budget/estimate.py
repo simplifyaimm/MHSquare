@@ -5,7 +5,8 @@ estimates; replace with LiteLLM /model/info prices when available.
 """
 
 PER_GENERATOR = {
-    "html_motion": 0.12,  # ~8k in / 7k out tokens on a Sonnet-class model
+    "html_animation": 0.12,  # ~8k in / 7k out tokens on a Sonnet-class model
+    "html_motion": 0.12,  # legacy name
     "template": 0.0,
     "passthrough": 0.0,
     "image": 0.08 + 0.10,  # one image + the overlay scene

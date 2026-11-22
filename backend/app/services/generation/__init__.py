@@ -27,10 +27,12 @@ from app.core.db import get_sessionmaker
 from app.llm import client as llm
 from app.llm.errors import ErrorKind, LLMError
 from app.models import Asset, AssetKind, Project, Shot, ShotState, Take, Transcript
-from app.services import routing
+from app.models.style import StyleProfile
+from app.services import routing, style
 from app.services.generation import prompts as GP
 from app.services.generation import renderer
 from app.services.generation import scene as S
+from app.services.generation.lint import lint as lint_scene
 from app.services.ingest.pipeline import latest_asset
 from app.services.storage import get_storage
 
@@ -45,11 +47,6 @@ class GenerationError(RuntimeError):
 
 
 # ---------------------------------------------------------------- helpers
-
-
-def _dims(p: Project) -> tuple[int, int, float]:
-    """Scenes are authored on a 1920×1080 stage; 4K renders at device scale 2."""
-    return 1920, 1080, 2.0 if p.resolution == "3840x2160" else 1.0
 
 
 def cache_key(*, visual_type: str, model: str | None, prompt: str, style_version: int, refs_hash: str,
@@ -144,14 +141,39 @@ def _shot_character_ids(p: Project, shot: Shot) -> list[str]:
 
 
 def _render_scene(p: Project, sc: S.Scene, theme: str, svgs: dict[str, str], duration_ms: int,
-                  extra_html: str = "", extra_css: str = "") -> renderer.RenderResult:  # fmt: skip
-    w, h, scale = _dims(p)
+                  extra_html: str = "", extra_css: str = "", probe: str | None = "fail",
+                  profile: StyleProfile | None = None) -> renderer.RenderResult:  # fmt: skip
+    """Render on the content type's canvas with the brand theme + injected footer (Style Profile)."""
+    profile = profile or _profile_for(p)
+    cv = style.canvas(profile, p)
+    scale = 2.0 if (not cv.is_short and p.resolution == "3840x2160") else 1.0
     return renderer.render(
-        html=S.character_templates(svgs) + extra_html + sc.html,
+        html=S.character_templates(svgs) + extra_html + sc.html + style.footer_html(profile, cv),
         css=extra_css + sc.css,
         js=GP.RUNTIME_JS + "\n" + sc.js,
-        theme_css=S.theme_css(theme),
-        width=w, height=h, fps=p.fps, duration_ms=duration_ms, scale=scale,
+        theme_css=style.theme_css(profile, p, theme, cv),
+        width=cv.stage_w, height=cv.stage_h, fps=p.fps, duration_ms=duration_ms, scale=scale,
+        probe={"safe_zones": cv.safe_zones, "mode": probe} if probe else None,
+    )  # fmt: skip
+
+
+def _profile_for(p: Project) -> StyleProfile:
+    with get_sessionmaker()() as db:
+        prof = style.active(db)
+        db.expunge(prof)
+        return prof
+
+
+def _lint(sc: S.Scene, profile: StyleProfile, theme: str) -> list[str]:
+    a = profile.animation_style or {}
+    b = profile.brand or {}
+    return lint_scene(
+        sc,
+        palette=list((a.get("palette") or {}).values()) + list(a.get("neutrals") or []),
+        allowed_fonts=a.get("allowed_fonts") or ["Oswald", "Poppins", "JetBrains Mono", "Consolas"],
+        theme=theme, story_palette=a.get("story_palette") or [],
+        handle=(a.get("footer") or {}).get("right") or b.get("handle", ""),
+        tagline=(a.get("footer") or {}).get("left", ""),
     )  # fmt: skip
 
 
@@ -170,9 +192,16 @@ def write_and_render(db: Session, p: Project, shot: Shot, take: Take, model: str
         theme=shot.theme, characters=chars, previous=previous, feedback=take.feedback_note,
         transcript=shot.transcript_text,
     )  # fmt: skip
+    profile = style.active(db)
+    cv = style.canvas(profile, p)
     messages = [{"role": "user", "content": user}]
-    system = GP.scene_system(shot.theme)
+    system = (
+        GP.scene_system(shot.theme, cv.stage_w, cv.stage_h)
+        + "\n\n"
+        + style.animation_rules(profile, p, shot.theme, cv)
+    )
     take.prompt_used = user
+    take.meta = {**(take.meta or {}), "style_profile_version": profile.version, "canvas": cv.label}
     logs: list[str] = []
     for attempt in range(2):
         text, res = llm.chat(
@@ -183,11 +212,19 @@ def write_and_render(db: Session, p: Project, shot: Shot, take: Take, model: str
         take.cost_usd = round(cost, 5)
         try:
             sc = S.parse(text)
-            S.check(sc)
+            S.check(sc)  # security: always enforced
+            issues = _lint(sc, profile, shot.theme)
+            if issues and attempt == 0:
+                raise S.SceneError("style lint: " + " | ".join(issues))
             take.code = json.dumps(sc.as_dict())
-            result = _render_scene(p, sc, shot.theme, svgs, shot.duration_ms, extra_html, extra_css)
+            # first attempt: layout problems abort before rendering (cheap) and go back to the LLM;
+            # after the fix round they're recorded as warnings and the shot still renders
+            result = _render_scene(p, sc, shot.theme, svgs, shot.duration_ms, extra_html, extra_css,
+                                   probe="fail" if attempt == 0 else "warn", profile=profile)  # fmt: skip
             take.meta = {**(take.meta or {}), "render_s": result.info.get("render_s"),
-                         "timeline_s": result.info.get("timeline_s"), "fix_rounds": attempt}  # fmt: skip
+                         "timeline_s": result.info.get("timeline_s"), "fix_rounds": attempt,
+                         "lint": "pass" if not issues else "warnings", "lint_warnings": issues,
+                         "layout_warnings": result.info.get("layout_warnings", [])}  # fmt: skip
             logs += result.info.get("logs", [])
             take.logs = logs[-60:]
             return result.video, result.thumb
@@ -218,7 +255,7 @@ def text_card_scene(shot: Shot) -> S.Scene:
     eyebrow = quoted[2] if len(quoted) > 2 else ""
     e = htmllib.escape
     html = f"""<div class="mh-bg"></div><div class="mh-glow" style="left:510px;top:90px"></div>
-<div class="center tc col gap-24" id="card" style="width:1500px;align-items:center">
+<div class="center tc col gap-24" id="card" style="width:calc(var(--stage-w) - 2*var(--safe-x));align-items:center">
   {f'<div class="mh-eyebrow" id="eb">{e(eyebrow)}</div>' if eyebrow else ""}
   <div class="mh-title xl" id="tt">{e(title)}</div>
   {f'<div class="mh-sub" id="sb" style="font-size:32px">{e(sub)}</div>' if sub else ""}
@@ -247,7 +284,11 @@ def a_roll_clip(db: Session, p: Project, shot: Shot, work: Path) -> Path:
     cam = latest_asset(db, p.id, AssetKind.facecam_final)
     if cam is None:
         raise GenerationError("a_roll needs a face-cam video")
-    w, h = (3840, 2160) if p.resolution == "3840x2160" else (1920, 1080)
+    cv = style.canvas(style.active(db), p)
+    if cv.is_short:  # shorts: face segments fill the vertical frame
+        w, h = cv.export_w, cv.export_h
+    else:
+        w, h = (3840, 2160) if p.resolution == "3840x2160" else (1920, 1080)
     out = work / "aroll.mp4"
     dur = shot.duration_ms / 1000
     _ffmpeg("-ss", f"{shot.start_ms / 1000:.3f}", "-i", str(get_storage().path(cam.storage_key)), "-t", f"{dur:.3f}",
@@ -347,7 +388,8 @@ def run_take(take_id: str) -> None:
         key = cache_key(visual_type=shot.visual_type, model=route.model, prompt=shot.prompt + "|" + shot.theme,
                         style_version=int((p.style_guide or {}).get("version", 0)), refs_hash="",
                         seed=take.seed, duration_ms=shot.duration_ms, resolution=p.resolution,
-                        extra=f"{route.generator}|{feedback}|{shot.start_ms}")  # fmt: skip
+                        extra=f"{route.generator}|{feedback}|{shot.start_ms}|{p.content_type}|sp{p.style_profile_version}"
+                                f"|{style.active(db).version}")  # fmt: skip
         take.cache_key = key
         hit = db.scalar(select(Take).where(Take.cache_key == key, Take.status == "done", Take.id != take.id))
         if hit and hit.storage_key and get_storage().exists(hit.storage_key):
@@ -361,7 +403,7 @@ def run_take(take_id: str) -> None:
         try:
             with tempfile.TemporaryDirectory(dir=_work_root()) as wd:
                 work = Path(wd)
-                if route.generator == "html_motion":
+                if route.generator == "html_animation":
                     video, thumb = write_and_render(
                         db, p, shot, take, route.model, route.fallbacks, brief=shot.prompt
                     )
@@ -369,7 +411,7 @@ def run_take(take_id: str) -> None:
                     take.model = "template"
                     sc = text_card_scene(shot)
                     take.code = json.dumps(sc.as_dict())
-                    r = _render_scene(p, sc, "tech", {}, shot.duration_ms)
+                    r = _render_scene(p, sc, "tech", {}, shot.duration_ms, probe="warn")
                     video, thumb = r.video, r.thumb
                 elif route.generator == "passthrough":
                     take.model = "facecam"
@@ -423,3 +465,20 @@ def _work_root() -> Path:
     d = get_storage().root / "tmp"
     d.mkdir(parents=True, exist_ok=True)
     return d
+
+
+def standalone_html(db: Session, take: Take) -> str:
+    """The take's scene as a self-contained auto-playing HTML file (same brand theme, footer, characters)."""
+    shot = db.get(Shot, take.shot_id)
+    p = db.get(Project, shot.project_id)
+    if not take.code:
+        raise GenerationError("this take has no scene source")
+    sc = S.Scene(**json.loads(take.code))
+    profile = style.active(db)
+    cv = style.canvas(profile, p)
+    svgs = (p.style_guide or {}).get("character_svgs", {}) if shot.theme == "story" else {}
+    return renderer.standalone(
+        html=S.character_templates(svgs) + sc.html + style.footer_html(profile, cv), css=sc.css,
+        js=GP.RUNTIME_JS + "\n" + sc.js, theme_css=style.theme_css(profile, p, shot.theme, cv),
+        width=cv.stage_w, height=cv.stage_h, title=f"{p.name} — shot {shot.index + 1}",
+    )  # fmt: skip

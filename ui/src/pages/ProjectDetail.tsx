@@ -5,6 +5,7 @@ import { CutsReview } from "@/components/CutsReview";
 import { ProjectStatusChip } from "@/components/ProjectStatusChip";
 import { ShotBoard } from "@/components/ShotBoard";
 import { usePlan } from "@/lib/shots";
+import { CONTENT_TYPE_LABEL, useMarkFinal } from "@/lib/style";
 import { Waveform } from "@/components/Waveform";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -54,6 +55,11 @@ export function ProjectDetailPage() {
         </Link>
         <h1 className="min-w-0 truncate text-2xl font-semibold tracking-tight">{p.name}</h1>
         <ProjectStatusChip status={p.status} />
+        <span className="rounded-full bg-surface-2 px-2.5 py-0.5 text-xs text-muted">
+          {CONTENT_TYPE_LABEL[p.content_type] ?? p.content_type}
+          {p.pillar ? ` · ${p.pillar}` : ""}
+        </span>
+        {p.status === "planned" && <MarkFinal pid={p.id} />}
         <span className="ml-auto">
           {confirmDelete ? (
             <span className="flex items-center gap-2 text-sm">
@@ -267,5 +273,20 @@ function PlanCard({ p }: { p: Project }) {
         {plan.error && <p className="text-sm text-danger">{plan.error.message}</p>}
       </CardContent>
     </Card>
+  );
+}
+
+function MarkFinal({ pid }: { pid: string }) {
+  const mark = useMarkFinal(pid);
+  return (
+    <Button
+      size="sm"
+      variant="ghost"
+      onClick={() => mark.mutate()}
+      disabled={mark.isPending || mark.isSuccess}
+      title="Add this topic to Covered topics"
+    >
+      <Check size={14} /> {mark.isSuccess ? `Added “${mark.data.title}” to topics` : "Mark script final"}
+    </Button>
   );
 }

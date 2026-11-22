@@ -33,6 +33,13 @@ export type Project = {
   style_notes: string;
   facecam_offset_ms: number;
   ingest_settings: IngestSettings;
+  content_type: import("./style").ContentType;
+  pillar: import("./style").Pillar | null;
+  topic_kind: "reach" | "authority" | null;
+  audience_level: "beginner" | "advanced";
+  topic: string;
+  script_check: import("./style").ScriptCheck | null;
+  style_profile_version: number | null;
   created_at: string;
   updated_at: string;
   assets: Asset[];
@@ -98,8 +105,16 @@ function useInvalidateProject(id?: string) {
 export function useCreateProject() {
   const done = useInvalidateProject();
   return useMutation({
-    mutationFn: (body: { name: string; resolution?: string; fps?: number }) =>
-      api<Project>("/projects", { method: "POST", body: JSON.stringify(body) }),
+    mutationFn: (body: {
+      name: string;
+      resolution?: string;
+      fps?: number;
+      content_type?: string;
+      pillar?: string | null;
+      topic_kind?: string | null;
+      audience_level?: string;
+      topic?: string;
+    }) => api<Project>("/projects", { method: "POST", body: JSON.stringify(body) }),
     onSuccess: done,
   });
 }

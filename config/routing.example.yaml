@@ -4,7 +4,8 @@
 
 visual_types:
   code_animation:
-    generator: html_motion         # LLM writes an HTML/GSAP scene -> sandboxed Chromium renders it
+    generator: html_animation      # LLM writes an HTML/CSS/JS (GSAP) scene -> sandboxed Chromium renders it
+    alt_generator: manim_code      # alternative (Manim)
     llm_model: code-llm
     fallbacks: [code-llm-backup]
   ai_clip:

@@ -43,7 +43,7 @@ A headless browser renders it frame by frame into video, in sync with the narrat
 
 ## Output format — exactly three fenced blocks, nothing else
 ```html
-<!-- markup placed inside #stage (1920×1080, position:relative, overflow:hidden) -->
+<!-- markup placed inside #stage (STAGE_W×STAGE_H, position:relative, overflow:hidden) -->
 ```
 ```css
 /* optional extra CSS for this scene */
@@ -55,9 +55,9 @@ tl.set({}, {}, DURATION);   // the timeline must end exactly at the shot duratio
 ```
 
 ## Hard technical rules (violations are rejected)
-- Use absolute px positioning on the 1920×1080 stage. Inline SVG is allowed and encouraged.
+- Use absolute px positioning on the STAGE_W×STAGE_H stage. Inline SVG is allowed and encouraged.
 - No <script>, <img>, <link>, <iframe>, <video>, external URLs, @import, web fonts, emoji images.
-  Fonts: only "Inter" (UI) and "JetBrains Mono" (code) — both installed.
+  Fonts: only the brand fonts via var(--f-head) / var(--f-body) / var(--f-mono) / var(--f-code) — all installed.
 - No setTimeout, setInterval, requestAnimationFrame, fetch, Date, CSS animations or transitions.
   ALL motion is GSAP tweens on `tl` (GSAP 3 with DrawSVGPlugin, MotionPathPlugin, TextPlugin, SplitText).
 - The renderer seeks the timeline forward frame by frame: t=0 must already look correct
@@ -79,31 +79,31 @@ tl.set({}, {}, DURATION);   // the timeline must end exactly at the shot duratio
   indices 18 px, eyebrows 15 px. Cards in diagrams at least 280×110 px.
 - End on a calm, composed frame held for ≥ 0.8 s. Do NOT fade everything out at the end."""
 
-TECH_DOC = """## House theme "tech" — use these classes (already loaded); match this exact look
-Background: `<div class="mh-bg"></div>` first (navy radial gradient + vignette). Optional `<div class="mh-glow" style="left:..;top:..">`.
-Scene heading (use this, never a lone tiny label in a corner): <div class="mh-header"><div class="mh-eyebrow">BEFORE</div>
-  <div class="mh-title">Direct calls</div></div> — it is pre-positioned in the safe area; keep the diagram below y≈260.
+TECH_DOC = """## Brand kit (theme "tech") — use these classes (already loaded); colours/fonts come from the Style Profile
+Background: `<div class="mh-bg"></div>` first (navy gradient + blueprint grid). Optional `<div class="mh-glow" style="left:..;top:..">`.
+Scene heading (never a lone tiny label in a corner): <div class="mh-header"><div class="mh-eyebrow">BEFORE</div>
+  <div class="mh-title">Direct calls</div></div> — pre-positioned in the safe area; keep the diagram below it.
 Layout helpers: .abs .center .row .col .gap-8/16/24/32/48/64 .tc .nowrap
-Type: .mh-eyebrow (small uppercase blue label) · .mh-title (.xl .lg .sm) · .mh-sub (muted) · .mh-body · .mh-num
-      colours: .mh-accent .mh-good .mh-bad .mh-warn
-Cards: .mh-card (glass card; modifiers .tight .focus .danger .success) — eyebrow + title + sub inside.
-Diagram node: <div class="mh-node"><small>SERVICE</small><b>checkout</b></div> (.focus to highlight)
-Chips: .mh-chip (rounded rect label) · .mh-pill (.bad .good) · .mh-badge (.warn .bad) e.g. "$$$"
-List panel: <div class="mh-list"><div class="mh-item on">OpenAI<small>hosted API</small></div>…</div> (.on selected, .dim)
-Code card:
-  <div class="mh-code"><div class="mh-code-head"><i></i><i></i><i></i><span>app.py</span></div>
-  <div class="mh-code-body"><span class="ln"><span class="k">from</span> litellm <span class="k">import</span> completion</span>
-  <span class="ln hl">    model=<span class="s">"gpt-4o"</span>,</span></div></div>
-  token classes: .k keyword .s string .f function .n number .c comment .p punctuation; line states .hl .bad .good .dim;
-  inline highlight: <span class="mh-mark">…</span>
-Connectors: <svg class="mh-wires" viewBox="0 0 1920 1080"></svg> then mhWire(svg, x1,y1,x2,y2) → animate with
-  tl.from(path,{drawSVG:0,duration:.6}); class "hot" = glowing active wire; circle.dot = travelling packet
-  (animate with motionPath:{path, align:path, alignOrigin:[.5,.5]}).
-Dividers: .mh-divider-v / .mh-divider-h · Progress: <div class="mh-bar"><i style="width:40%"></i></div>
-Signature moves from the reference: chips orbiting a central hub card; a counter rolling up (mhCount);
-a "routed to" list whose selected row moves in sync with a highlighted code argument; split screen
-"OPTION ONE / OPTION TWO" with a vertical divider; many service nodes wiring into one gateway node;
-red-tinted code lines for the problem, then a clean replacement."""
+Type: .mh-title (Oswald, uppercase; .xl .lg .sm) · .mh-eyebrow / .mh-meta (JetBrains Mono labels) · .mh-sub · .mh-body
+      (Poppins) · .mh-num · colour helpers .mh-accent .mh-good .mh-bad .mh-warn
+Pills + LEDs (signature components): <span class="mh-pill"><i class="mh-led"></i>Retriever</span>
+      pill variants .warn .good .bad .series .growth .tools .advice · LED states .off .warn .good .bad
+Panels: .mh-card (.tight .focus .danger .warn .success) · node: <div class="mh-node"><small>SERVICE</small><b>Checkout</b></div>
+Chips: .mh-chip (mono label) · List: <div class="mh-list"><div class="mh-item on"><i class="mh-led"></i>OpenAI<small>hosted API</small></div></div>
+Code demo — VS Code on Windows (controls on the RIGHT, never macOS dots):
+  <div class="vsc"><div class="vsc-title"><span class="name">app.py — Visual Studio Code</span>
+  <span class="ctl">—</span><span class="ctl">☐</span><span class="ctl">✕</span></div>
+  <div class="vsc-tabs"><span class="vsc-tab">app.py</span></div>
+  <div class="vsc-body"><span class="ln"><span class="kw">from</span> litellm <span class="kw">import</span> completion</span>
+  <span class="ln hl">model=<span class="str">"gpt-4o"</span></span></div>
+  <div class="vsc-status">Python 3.12 · UTF-8</div></div>
+  Dark+ tokens: .kw .ctrl .str .fn .num .cm .ty .var .pun · line states .hl .bad .good .dim
+Connectors: <svg class="mh-wires"></svg> (full stage) then mhWire(svg, x1,y1,x2,y2) → tl.from(path,{drawSVG:0,duration:.6});
+  classes "hot" (glowing active), "bad", "good"; circle.dot = travelling packet (motionPath:{path, align:path, alignOrigin:[.5,.5]}).
+Dividers .mh-divider-v / .mh-divider-h · Progress <div class="mh-bar"><i style="width:40%"></i></div>
+Prefer diagrams that show the mechanism moving: data flowing along wires, LEDs switching on, pills lighting up in
+sequence, a counter rolling (mhCount), before/after split with a divider, a code line highlighting as it runs."""
+
 
 STORY_DOC = """## House theme "story" — warm flat 2D cartoon illustration; match this exact look
 Background: `<div class="st-bg"></div><div class="st-floor"></div><div class="st-light"></div>` (soft teal room).
@@ -134,8 +134,9 @@ Use transform-box:fill-box friendly geometry (no transforms on the groups themse
 Output ONLY the <svg>…</svg> markup in a ```svg fenced block. No scripts, no external refs, no text."""
 
 
-def scene_system(theme: str) -> str:
-    return f"{COMMON_RULES}\n\n{STORY_DOC if theme == 'story' else TECH_DOC}"
+def scene_system(theme: str, stage_w: int = 1920, stage_h: int = 1080) -> str:
+    rules = COMMON_RULES.replace("STAGE_W", str(stage_w)).replace("STAGE_H", str(stage_h))
+    return f"{rules}\n\n{STORY_DOC if theme == 'story' else TECH_DOC}"
 
 
 def scene_user(*, prompt: str, duration_ms: int, words: list[dict], style_guide: dict, theme: str,

@@ -10,6 +10,7 @@ from app.models.project import (
     Upload,
 )
 from app.models.shot import Shot, ShotState, Take, VisualType
+from app.models.style import CoveredTopic, StyleProfile
 from app.models.user import AuthSession, User
 
 __all__ = [
@@ -28,4 +29,6 @@ __all__ = [
     "ShotState",
     "Take",
     "VisualType",
+    "StyleProfile",
+    "CoveredTopic",
 ]

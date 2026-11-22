@@ -64,6 +64,14 @@ class Project(Base):
     style_notes: Mapped[str] = mapped_column(Text, default="")
     style_guide: Mapped[dict] = mapped_column(JSON, default=dict)  # {"version": n, …}
     plan_meta: Mapped[dict | None] = mapped_column(JSON, nullable=True)  # planner cost/model/error
+    # v2.1 content settings
+    content_type: Mapped[str] = mapped_column(String(32), default="long_form")
+    pillar: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    topic_kind: Mapped[str | None] = mapped_column(String(16), nullable=True)  # reach | authority
+    audience_level: Mapped[str] = mapped_column(String(16), default="beginner")
+    topic: Mapped[str] = mapped_column(String(300), default="")
+    script_check: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    style_profile_version: Mapped[int | None] = mapped_column(Integer, nullable=True)
     facecam_offset_ms: Mapped[int] = mapped_column(Integer, default=0)
     ingest_settings: Mapped[dict] = mapped_column(JSON, default=lambda: dict(DEFAULT_INGEST_SETTINGS))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)

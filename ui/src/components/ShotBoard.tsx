@@ -4,6 +4,7 @@ import {
   ChevronLeft,
   ChevronRight,
   Clapperboard,
+  Download,
   Film,
   Loader2,
   Merge,
@@ -409,12 +410,39 @@ function ShotReview({
           <Button variant="ghost" size="sm" onClick={() => setEditing((e) => !e)}>
             <Pencil size={14} /> {editing ? "Close editor" : "Edit brief / type"}
           </Button>
+          {take?.status === "done" && take.generator.startsWith("html") && (
+            <a href={`/api/takes/${take.id}/html`} className="inline-flex">
+              <Button variant="ghost" size="sm" type="button">
+                <Download size={14} /> HTML
+              </Button>
+            </a>
+          )}
           {take && (
             <span className="ml-auto self-center font-mono text-xs text-muted">
               {take.model} · ${take.cost_usd.toFixed(3)}
+              {take.meta.style_profile_version ? ` · style v${String(take.meta.style_profile_version)}` : ""}
             </span>
           )}
         </div>
+        {take &&
+        ((take.meta.lint_warnings as string[] | undefined)?.length ||
+          (take.meta.layout_warnings as string[] | undefined)?.length) ? (
+          <details className="rounded-lg border border-warning/30 bg-warning/10 p-2.5 text-xs text-warning">
+            <summary className="cursor-pointer">
+              Style lint / layout warnings remained after the fix round
+            </summary>
+            <ul className="mt-1 list-disc pl-5">
+              {[
+                ...((take.meta.lint_warnings as string[]) ?? []),
+                ...((take.meta.layout_warnings as string[]) ?? []),
+              ].map((w, i) => (
+                <li key={i}>{w}</li>
+              ))}
+            </ul>
+          </details>
+        ) : take?.meta.lint === "pass" ? (
+          <p className="text-xs text-success">Style lint passed · layout OK</p>
+        ) : null}
         {editing && <ShotEditor pid={pid} shot={shot} next={next} onDone={() => setEditing(false)} />}
       </CardContent>
     </Card>

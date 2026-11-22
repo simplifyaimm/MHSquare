@@ -11,12 +11,15 @@ from pydantic import BaseModel, Field
 
 from app.core.config import get_settings
 
-Generator = Literal["html_motion", "manim_code", "video", "image", "template", "passthrough"]
+Generator = Literal[
+    "html_animation", "html_motion", "manim_code", "video", "image", "template", "passthrough"
+]
 ALL_TYPES = ["code_animation", "ai_clip", "still_image", "text_card", "a_roll"]
 
 
 class VisualRoute(BaseModel):
     generator: Generator
+    alt_generator: Generator | None = None
     model: str | None = None
     llm_model: str | None = None
     keyframe_model: str | None = None
@@ -43,7 +46,10 @@ class RoutingConfig(BaseModel):
 DEFAULT = RoutingConfig(
     visual_types={
         "code_animation": VisualRoute(
-            generator="html_motion", llm_model="code-llm", fallbacks=["code-llm-backup"]
+            generator="html_animation",
+            alt_generator="manim_code",
+            llm_model="code-llm",
+            fallbacks=["code-llm-backup"],
         ),
         "ai_clip": VisualRoute(
             generator="video",
@@ -90,10 +96,11 @@ def resolve(
 ) -> Resolved:
     cfg = cfg or load()
     route = cfg.visual_types[visual_type]  # type: ignore[index]
-    main = route.llm_model if route.generator in ("html_motion", "manim_code") else route.model
+    gen = "html_animation" if route.generator == "html_motion" else route.generator  # legacy alias
+    main = route.llm_model if gen in ("html_animation", "manim_code") else route.model
     return Resolved(
         visual_type=visual_type,
-        generator=route.generator,
+        generator=gen,
         model=override_model or main,
         fallbacks=list(route.fallbacks),
         route=route,

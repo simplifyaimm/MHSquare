@@ -48,7 +48,45 @@ DETERMINISM = r"""
 })();
 """
 
-FREEZE_CSS = "*,*::before,*::after{animation:none!important;transition:none!important;caret-color:transparent}"
+class LayoutError(RuntimeError):
+    pass
+
+
+# Final-frame layout check: visible content inside a keep-clear zone (e.g. the face-cam circle) or
+# text running off the stage. Backgrounds, wires, the footer and stage-sized wrappers are ignored.
+PROBE_JS = r"""
+(zones) => {
+  const stage = document.getElementById('stage');
+  const S = stage.getBoundingClientRect(), W = S.width, H = S.height, out = new Set();
+  const ignore = '.mh-bg,.mh-footer,.mh-glow,.st-bg,.st-floor,.st-light,svg.mh-wires,.mh-sparkle,template';
+  const visible = (el) => { for (let e = el; e && e !== stage; e = e.parentElement) {
+      const cs = getComputedStyle(e);
+      if (cs.display === 'none' || cs.visibility === 'hidden' || parseFloat(cs.opacity) < 0.08) return false; }
+    return true; };
+  const label = (el) => { const t = (el.textContent || '').trim().replace(/\s+/g, ' ').slice(0, 40);
+    return el.tagName.toLowerCase() + (el.className && typeof el.className === 'string' ? '.' + el.className.split(' ')[0] : '') + (t ? ` "${t}"` : ''); };
+  for (const el of stage.querySelectorAll('*')) {
+    if (el.closest(ignore)) continue;
+    const svgRoot = el.closest('svg');
+    if (svgRoot && svgRoot !== el) continue;           // judge inline SVGs as a whole
+    const ownText = [...el.childNodes].some(n => n.nodeType === 3 && n.textContent.trim());
+    if (!(ownText || el.children.length === 0 || el.tagName.toLowerCase() === 'svg')) continue;
+    const r = el.getBoundingClientRect();
+    if (r.width < 4 || r.height < 4 || r.width * r.height > 0.6 * W * H || !visible(el)) continue;
+    const x = r.left - S.left, y = r.top - S.top;
+    for (const z of zones) {
+      const ix = Math.max(0, Math.min(x + r.width, z.x + z.w) - Math.max(x, z.x));
+      const iy = Math.max(0, Math.min(y + r.height, z.y + z.h) - Math.max(y, z.y));
+      if (ix * iy > 400) out.add(`${label(el)} overlaps the ${z.name} zone (keep x<${z.x} or y<${z.y})`);
+    }
+    if (ownText && (x < -4 || y < -4 || x + r.width > W + 4 || y + r.height > H + 4))
+      out.add(`${label(el)} runs off the stage`);
+  }
+  return [...out].slice(0, 8);
+}
+"""
+
+FREEZE_CSS ="*,*::before,*::after{animation:none!important;transition:none!important;caret-color:transparent}"
 
 
 def build_page(req: dict) -> str:
@@ -89,6 +127,7 @@ def render(req: dict) -> dict:
     thumb = OUT / f"{job}_thumb.jpg"
     logs: list[str] = []
     started = time.monotonic()
+    layout_warnings: list[str] = []
 
     ff = subprocess.Popen(  # noqa: S603
         ["ffmpeg", "-nostdin", "-v", "error", "-y", "-f", "image2pipe", "-framerate", str(fps), "-c:v", "png",
@@ -117,6 +156,16 @@ def render(req: dict) -> dict:
             tl_dur = page.evaluate("window.__mhDuration")
             if errors:
                 raise RuntimeError("; ".join(errors)[:2000])
+            probe = req.get("probe")
+            if probe:
+                page.evaluate("(t) => window.__mhSeek(t)", (frames - 1) / fps)
+                issues = page.evaluate(PROBE_JS, probe.get("safe_zones", []))
+                if issues and probe.get("mode", "fail") == "fail":
+                    raise LayoutError("layout: " + "; ".join(issues))
+                layout_warnings = issues
+                # fresh page so callbacks fired while probing can't leak into the real render
+                page.set_content(build_page(req), wait_until="load", timeout=30_000)
+                page.evaluate("document.fonts.ready")
             mid = frames // 2
             for i in range(frames):
                 if time.monotonic() - started > RENDER_TIMEOUT_S:
@@ -136,12 +185,56 @@ def render(req: dict) -> dict:
             logs.append("runtime errors: " + "; ".join(late)[:1000])
         return {
             "ok": True, "path": out.name, "thumb": thumb.name, "frames": frames, "timeline_s": tl_dur,
-            "render_s": round(time.monotonic() - started, 1), "logs": logs[-50:],
+            "render_s": round(time.monotonic() - started, 1), "logs": logs[-50:], "layout_warnings": layout_warnings,
         }  # fmt: skip
     except Exception as e:  # noqa: BLE001
         ff.kill()
         out.unlink(missing_ok=True)
         return {"ok": False, "error": f"{type(e).__name__}: {e}"[:3000], "logs": logs[-50:]}
+
+
+_FONT_CSS: str | None = None
+
+
+def embedded_fonts() -> str:
+    """Brand fonts as data-URI @font-face rules so a standalone file looks identical on any machine."""
+    global _FONT_CSS
+    if _FONT_CSS is None:
+        rules = []
+        files = [("Oswald", "200 700", "/usr/share/fonts/brand/Oswald.ttf")] + [
+            ("Poppins", wt, f"/usr/share/fonts/brand/Poppins-{n}.ttf")
+            for n, wt in (("Regular", "400"), ("Medium", "500"), ("SemiBold", "600"), ("Bold", "700"))
+        ]
+        for fam, weight, path in files:
+            p = Path(path)
+            if p.exists():
+                b64 = base64.b64encode(p.read_bytes()).decode()
+                rules.append(f"@font-face{{font-family:'{fam}';font-weight:{weight};"
+                             f"src:url(data:font/ttf;base64,{b64}) format('truetype')}}")  # fmt: skip
+        _FONT_CSS = "\n".join(rules)
+    return _FONT_CSS
+
+
+def build_standalone(req: dict) -> str:
+    """Self-contained, auto-playing HTML (libraries + brand fonts inline) that scales the fixed stage to any window."""
+    w, h = int(req["width"]), int(req["height"])
+    return f"""<!doctype html><html><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1"><title>{req.get("title", "mhsquare animation")}</title>
+<style>{embedded_fonts()}
+html,body{{margin:0;height:100%;background:#060b14;overflow:hidden}}
+#stage{{position:absolute;left:50%;top:50%;width:{w}px;height:{h}px;overflow:hidden;transform-origin:center center}}
+{req.get("theme_css", "")}
+{req.get("css", "")}</style>
+<script>{LIBS}</script>
+<script>gsap.registerPlugin(DrawSVGPlugin, MotionPathPlugin, TextPlugin, SplitText);</script>
+</head><body><div id="stage">{req.get("html", "")}</div>
+<script>
+const W = {w}, H = {h}, stage = document.getElementById("stage");
+function fit() {{ const scale = Math.min(innerHeight / H, innerWidth / W);
+  stage.style.transform = `translate(-50%,-50%) scale(${{scale}})`; }}
+addEventListener("resize", fit); fit();
+{req.get("js", "")}
+</script></body></html>"""
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -160,7 +253,7 @@ class Handler(BaseHTTPRequestHandler):
             self._json(404, {"error": "not found"})
 
     def do_POST(self) -> None:  # noqa: N802
-        if self.path != "/render":
+        if self.path not in ("/render", "/standalone"):
             return self._json(404, {"error": "not found"})
         n = int(self.headers.get("Content-Length", 0))
         if n > 4_000_000:
@@ -173,6 +266,8 @@ class Handler(BaseHTTPRequestHandler):
                 return self._json(400, {"error": "bad duration/fps"})
         except (ValueError, KeyError) as e:
             return self._json(400, {"error": str(e)})
+        if self.path == "/standalone":
+            return self._json(200, {"html": build_standalone(req)})
         with _slots:
             self._json(200, render(req))
 

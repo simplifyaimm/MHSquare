@@ -1,0 +1,5 @@
+/* brand footer — injected by mhsquare (not the LLM) when footer_on_animations is on */
+.mh-footer{position:absolute;left:var(--safe-x);bottom:30px;display:flex;justify-content:space-between;align-items:center;
+  gap:24px;font:500 16px/1 var(--f-mono);letter-spacing:.22em;text-transform:uppercase;color:rgba(232,238,247,.6);
+  text-shadow:0 1px 6px rgba(0,0,0,.5);z-index:50}
+.mh-footer .r{letter-spacing:.06em;text-transform:none}

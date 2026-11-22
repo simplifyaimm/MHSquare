@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { Link, Navigate, useNavigate, useParams } from "react-router-dom";
 import { ArrowLeft, ArrowRight, AudioLines, Check, Loader2, Play } from "lucide-react";
+import { ScriptCheckPanel } from "@/components/ScriptCheckPanel";
 import { UploadSlot } from "@/components/UploadSlot";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -60,14 +61,17 @@ export function ProjectSetupPage() {
       <Card>
         <CardContent className="flex flex-col gap-6">
           {step === 0 && (
-            <UploadSlot
-              projectId={p.id}
-              kind="script"
-              accept=".md,.txt"
-              label="Script"
-              hint="The script you recorded from. Used for intent when planning shots."
-              assets={p.assets.filter((a) => a.kind === "script")}
-            />
+            <>
+              <UploadSlot
+                projectId={p.id}
+                kind="script"
+                accept=".md,.txt"
+                label="Script"
+                hint="The script you recorded from. Used for intent when planning shots."
+                assets={p.assets.filter((a) => a.kind === "script")}
+              />
+              <ScriptCheckPanel p={p} />
+            </>
           )}
           {step === 1 && <NarrationStep p={p} />}
           {step === 2 && (

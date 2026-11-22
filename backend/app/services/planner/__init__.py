@@ -13,7 +13,7 @@ from sqlalchemy.orm import Session
 from app.core.db import get_sessionmaker
 from app.llm import client as llm
 from app.models import AssetKind, Project, ProjectStatus, Shot, ShotState, Transcript
-from app.services import routing
+from app.services import routing, style
 from app.services.ingest.pipeline import latest_asset
 from app.services.planner import prompt as P
 from app.services.storage import get_storage
@@ -202,10 +202,17 @@ def _plan(db: Session, p: Project) -> None:
     segments = segment_words(words)
     has_facecam = latest_asset(db, p.id, AssetKind.facecam_final) is not None
     cfg = routing.load()
-    allowed = [t for t in cfg.planner.allowed_visual_types if t != "a_roll" or has_facecam]
+    profile = style.active(db)
+    long_form = not style.is_short(p.content_type)
+    # long-form: the face cam is a persistent PiP circle, never an a_roll shot (spec v2.1 §3.1)
+    allowed = [
+        t for t in cfg.planner.allowed_visual_types if t != "a_roll" or (has_facecam and not long_form)
+    ]
+    brief = style.planner_brief(profile, p, has_facecam)
+    p.style_profile_version = profile.version
 
     messages = [{"role": "user", "content": P.user_message(script, segments, duration, has_facecam, allowed,
-                                                           p.style_notes)}]  # fmt: skip
+                                                           p.style_notes, brief)}]  # fmt: skip
     total_cost, used = 0.0, cfg.planner.model
     plan: Plan | None = None
     last_err = ""

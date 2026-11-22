@@ -13,6 +13,15 @@ RUN pip install playwright==1.65.2 \
  && playwright install --with-deps chromium \
  && rm -rf /var/lib/apt/lists/*
 
+# Brand fonts (Style Profile v2.1): Oswald headlines, Poppins body; JetBrains Mono from Debian.
+# Consolas is proprietary — the code font stack falls back to JetBrains Mono.
+RUN mkdir -p /usr/share/fonts/brand && cd /usr/share/fonts/brand \
+ && curl -fsSL -o Oswald.ttf "https://github.com/google/fonts/raw/main/ofl/oswald/Oswald%5Bwght%5D.ttf" \
+ && for w in Regular Medium SemiBold Bold; do \
+      curl -fsSL -o "Poppins-$w.ttf" "https://github.com/google/fonts/raw/main/ofl/poppins/Poppins-$w.ttf"; \
+    done \
+ && fc-cache -f
+
 # Vendored animation libraries — the page can never load anything from the network.
 ARG GSAP=3.15.1
 RUN mkdir -p /opt/runner/vendor && cd /opt/runner/vendor \

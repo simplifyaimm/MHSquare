@@ -11,6 +11,9 @@ RUN apt-get update \
  && rm -rf /var/lib/apt/lists/*
 
 RUN useradd --create-home --uid 1000 app
+# Brand font for burned-in watermark text (Style Profile v2.1)
+RUN mkdir -p /usr/share/fonts/brand && curl -fsSL -o /usr/share/fonts/brand/Poppins-SemiBold.ttf \
+      "https://github.com/google/fonts/raw/main/ofl/poppins/Poppins-SemiBold.ttf"
 WORKDIR /app
 
 # Install dependencies first (cached layer), from pyproject.toml only.

@@ -104,6 +104,13 @@ MODEL_SLOTS: tuple[ModelSlot, ...] = (
         "tts",
         ("gemini/gemini-2.5-flash-preview-tts", "openai/gpt-4o-mini-tts"),
     ),
+    ModelSlot(
+        "embed",
+        "MH_MODEL_EMBED",
+        "Topic similarity (embeddings)",
+        "embed",
+        ("gemini/gemini-embedding-001", "openai/text-embedding-3-small"),
+    ),
 )
 SLOTS_BY_ALIAS = {s.alias: s for s in MODEL_SLOTS}
 

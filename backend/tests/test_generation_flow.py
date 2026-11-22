@@ -152,9 +152,7 @@ def test_plan_generate_review_preview(fakes, ready_project):
         data["shots"][2]["takes"][0]["model"] == "template" and data["shots"][2]["takes"][0]["cost_usd"] == 0
     )
     # word timings are relative to the shot start
-    scene_prompt = next(
-        x for x in llm.calls if x["system"] and "tech" in x["system"] and "mh-code" in x["system"]
-    )
+    scene_prompt = next(x for x in llm.calls if x["system"] and "vsc-title" in x["system"])
     assert "0.00s  Kafka" in scene_prompt["messages"][0]["content"]
     assert c.get(t0["video_url"]).status_code == 200
 
@@ -273,3 +271,40 @@ def test_planner_retries_once_with_validation_errors(fakes, ready_project, monke
     assert data["status"] == "planned" and data["plan_meta"]["attempts"] == 2
     assert "end at segment 2" in llm.calls[-1]["messages"][-1]["content"]
     assert data["plan_meta"]["cost_usd"] == 0.04
+
+
+def test_preview_composites_facecam_circle_and_shorts_canvas(fakes, ready_project):
+    """Long-form: face-cam circle bottom-right; shorts: vertical 9:16 proxy with the 3:4 canvas."""
+    import uuid as _uuid
+
+    from app.services.assembly.preview import build_preview
+
+    c, csrf, pid = ready_project
+    h = {"X-CSRF-Token": csrf}
+    storage = get_storage()
+    with get_sessionmaker()() as db:
+        p = db.get(Project, _uuid.UUID(pid))
+        key = storage.new_key(p.id, "mp4")
+        path = storage.path(key)
+        subprocess.run(["ffmpeg", "-nostdin", "-v", "error", "-y", "-f", "lavfi", "-i",  # noqa: S603, S607
+                        f"testsrc2=size=640x360:rate=30:duration={DURATION / 1000}", "-pix_fmt", "yuv420p",
+                        "-c:v", "libx264", "-preset", "ultrafast", str(path)], check=True)  # fmt: skip
+        db.add(Asset(project_id=p.id, kind=AssetKind.facecam_final, storage_key=key, sha256="x", size=1,
+                     mime="video/mp4", meta={"duration_ms": DURATION}))  # fmt: skip
+        db.commit()
+    c.post(f"/api/projects/{pid}/plan", headers=h)
+    c.post(f"/api/projects/{pid}/generate", json={}, headers=h)
+    build_preview(pid)
+    d = c.get(f"/api/projects/{pid}/shots").json()
+    assert d["plan_meta"]["preview"]["status"] == "done", d["plan_meta"]
+    assert d["preview"]["meta"]["layout"] == "long_form" and d["preview"]["meta"]["width"] == 1280
+    # a long-form plan never contains a_roll (face cam is the PiP circle)
+    assert all(s["visual_type"] != "a_roll" for s in d["shots"])
+
+    c.patch(f"/api/projects/{pid}", json={"content_type": "short_series"}, headers=h)  # locked once planned
+    with get_sessionmaker()() as db:
+        db.get(Project, _uuid.UUID(pid)).content_type = "short_series"
+        db.commit()
+    build_preview(pid)
+    meta = c.get(f"/api/projects/{pid}/shots").json()["preview"]["meta"]
+    assert (meta["width"], meta["height"], meta["layout"]) == (540, 960, "shorts")

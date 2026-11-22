@@ -256,3 +256,11 @@ def generate_image(alias: str, prompt: str, *, size: str = "1536x1024", fallback
 def speech(alias: str, text: str, voice: str, timeout: float = 600) -> tuple[bytes, CallResult]:
     used, resp = _call("/audio/speech", {"input": text, "voice": voice}, [alias], timeout)
     return resp.content, CallResult(alias=used, cost_usd=_cost(resp))
+
+
+def embed(
+    texts: list[str], alias: str = "embed", timeout: float = 60
+) -> tuple[list[list[float]], CallResult]:
+    used, resp = _call("/embeddings", {"input": texts}, [alias], timeout)
+    data = sorted(resp.json().get("data", []), key=lambda d: d.get("index", 0))
+    return [d["embedding"] for d in data], CallResult(alias=used, cost_usd=_cost(resp))

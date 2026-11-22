@@ -44,6 +44,9 @@ def _project_out(p: Project) -> ProjectOut:
         id=p.id, name=p.name, status=p.status, ingest_step=p.ingest_step, error=p.error,
         resolution=p.resolution, fps=p.fps, style_notes=p.style_notes,
         facecam_offset_ms=p.facecam_offset_ms, ingest_settings=p.ingest_settings or {},
+        content_type=p.content_type or "long_form", pillar=p.pillar, topic_kind=p.topic_kind,
+        audience_level=p.audience_level or "beginner", topic=p.topic or "", script_check=p.script_check,
+        style_profile_version=p.style_profile_version,
         created_at=p.created_at, updated_at=p.updated_at,
         assets=[_asset_out(a) for a in sorted(p.assets, key=lambda a: a.created_at) if a.kind in VISIBLE_KINDS],
     )  # fmt: skip
@@ -71,7 +74,9 @@ def list_projects(db: Session = Depends(get_db)):
 
 @router.post("/projects", response_model=ProjectOut, status_code=status.HTTP_201_CREATED)
 def create_project(body: ProjectCreate, db: Session = Depends(get_db)):
-    p = Project(name=body.name.strip(), resolution=body.resolution, fps=body.fps)
+    p = Project(name=body.name.strip(), resolution=body.resolution, fps=body.fps, content_type=body.content_type,
+                pillar=body.pillar, topic_kind=body.topic_kind, audience_level=body.audience_level,
+                topic=body.topic.strip() or body.name.strip())  # fmt: skip
     db.add(p)
     db.commit()
     db.refresh(p)
@@ -90,6 +95,12 @@ def patch_project(project_id: uuid.UUID, body: ProjectPatch, db: Session = Depen
     timing_fields = {"facecam_offset_ms", "ingest_settings", "fps"}
     if timing_fields & data.keys():
         _require_editable(p)
+    if (
+        "content_type" in data
+        and data["content_type"] != p.content_type
+        and p.status in (ProjectStatus.planning, ProjectStatus.planned)
+    ):
+        raise HTTPException(status.HTTP_409_CONFLICT, "Content type is fixed once shots are planned")
     for k, v in data.items():
         setattr(p, k, v)
     db.commit()
@@ -311,3 +322,54 @@ def get_waveform(
     if a is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Waveform not ready")
     return json.loads(Path(get_storage().path(a.storage_key)).read_text())
+
+
+# ---------------------------------------------------------------- v2.1: script judge, topic registry, stats
+
+
+@router.post("/projects/{project_id}/script-check")
+def script_check(project_id: uuid.UUID, db: Session = Depends(get_db)):
+    from app.llm.errors import LLMError
+    from app.services import script_check as SC
+    from app.services import style as S
+
+    p = _get_project(db, project_id)
+    script = pipeline.latest_asset(db, p.id, AssetKind.script)
+    if script is None:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Upload the script first")
+    text = get_storage().path(script.storage_key).read_text("utf-8-sig")
+    try:
+        result = SC.judge(p, S.active(db), text)
+    except LLMError as e:  # deterministic checks still help when the judge LLM is unavailable
+        result = {"passed": None, "error": f"{e.kind}: {e}",
+                  "deterministic": SC.deterministic(SC.spoken_text(text), p.content_type, S.active(db))}  # fmt: skip
+    p.script_check = result
+    db.commit()
+    return result
+
+
+@router.post("/projects/{project_id}/mark-final")
+def mark_final(project_id: uuid.UUID, db: Session = Depends(get_db)):
+    """The script is final: add its topic to the covered-topics registry (spec v2.1 §4)."""
+    from app.models.style import CoveredTopic
+
+    p = _get_project(db, project_id)
+    title = (p.topic or p.name).strip()
+    t = db.scalar(select(CoveredTopic).where(CoveredTopic.source_project_id == p.id))
+    if t is None:
+        t = CoveredTopic(title=title, pillar=p.pillar, content_type=p.content_type, status="covered",
+                         source_project_id=p.id)  # fmt: skip
+        db.add(t)
+    else:
+        t.title, t.status, t.embedding = title, "covered", None
+    db.commit()
+    return {"topic_id": str(t.id), "title": t.title}
+
+
+@router.get("/projects-stats")
+def stats(db: Session = Depends(get_db)):
+    """Reach : Authority ratio (target 2 : 1)."""
+    kinds = [k for (k,) in db.execute(select(Project.topic_kind))]
+    reach, authority = kinds.count("reach"), kinds.count("authority")
+    return {"reach": reach, "authority": authority, "untagged": kinds.count(None), "target": "2:1",
+            "on_target": authority == 0 and reach == 0 or (authority > 0 and reach / authority >= 2)}  # fmt: skip

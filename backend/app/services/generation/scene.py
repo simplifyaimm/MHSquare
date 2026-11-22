@@ -95,11 +95,6 @@ def check(scene: Scene) -> None:
         raise SceneError("js must assign the timeline: window.__scene = tl")
 
 
-def theme_css(theme: str) -> str:
-    name = theme if theme in ("tech", "story") else "tech"
-    return (THEMES_DIR / f"{name}.css").read_text("utf-8")
-
-
 def character_templates(svgs: dict[str, str]) -> str:
     css = (
         "<style>.mh-character .arm-l,.mh-character .arm-r,.mh-character .head,.mh-character .eyes,"

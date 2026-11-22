@@ -1,5 +1,5 @@
 import { NavLink, Outlet, useNavigate } from "react-router-dom";
-import { BarChart3, FolderKanban, LogOut, Settings, WifiOff } from "lucide-react";
+import { BarChart3, FolderKanban, ListChecks, LogOut, Palette, Settings, WifiOff } from "lucide-react";
 import { useEffect, useState } from "react";
 import { Logo, LogoMark } from "./Logo";
 import { Button } from "./ui/button";
@@ -8,6 +8,8 @@ import { cn } from "@/lib/utils";
 
 const nav = [
   { to: "/projects", label: "Projects", icon: FolderKanban },
+  { to: "/topics", label: "Topics", icon: ListChecks },
+  { to: "/brand", label: "Brand", icon: Palette },
   { to: "/usage", label: "Usage", icon: BarChart3 },
   { to: "/settings", label: "Settings", icon: Settings },
 ];

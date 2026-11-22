@@ -368,3 +368,19 @@ def narration_tts(project_id: uuid.UUID, body: TTSBody, db: Session = Depends(ge
     db.commit()
     tasks.ingest_tts.delay(str(p.id), body.voice)
     return {"status": "running"}
+
+
+@router.get("/takes/{take_id}/html")
+def take_html(take_id: uuid.UUID, db: Session = Depends(get_db)):
+    from fastapi.responses import HTMLResponse
+
+    t = db.get(Take, take_id)
+    if t is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Take not found")
+    try:
+        html = generation.standalone_html(db, t)
+    except (generation.GenerationError, generation.renderer.RenderError) as e:
+        raise HTTPException(status.HTTP_409_CONFLICT, str(e)) from e
+    return HTMLResponse(html, headers={"Content-Disposition": f'attachment; filename="shot-take-{t.attempt}.html"',
+                                       "Content-Security-Policy": "default-src \'none\'; style-src \'unsafe-inline\'; "
+                                       "script-src \'unsafe-inline\'; img-src data:; font-src data:"})  # fmt: skip

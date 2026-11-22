@@ -50,5 +50,7 @@ the gitleaks binary or Docker.
 - [~] Phase 5 — Images, keyframes, AI clips (image + overlay path built; needs an image/video provider with credit)
 - [~] Phase 6 — Review, state machine, budget (takes, accept, regenerate-with-note, error→state mapping; SSE/runs/auto-resume pending)
 - [x] Draft narration (TTS) + 720p preview render
+- [x] v2.1 Style Profile — brand kit (versioned), content-type presets, script judge, topic registry, brand animation style + style lint + layout probe, footer/watermark/face-cam circle, HTML export, reply helper
+- [ ] v2 (Script Studio, Shorts Studio, Publish Kit, Descript round-trip) — waiting for `mhsquare-update-v2.md`
 - [ ] Phase 7 — Assembly and export
 - [ ] Phase 8 — Mobile and polish
