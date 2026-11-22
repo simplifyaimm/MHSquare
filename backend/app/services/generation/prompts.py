@@ -158,12 +158,16 @@ Output ONLY the <svg>…</svg> markup in a ```svg fenced block. No scripts, no e
 
 
 def scene_system(theme: str, stage_w: int = 1920, stage_h: int = 1080) -> str:
+    from app.services.generation.icons import names
+
     rules = COMMON_RULES.replace("STAGE_W", str(stage_w)).replace("STAGE_H", str(stage_h))
-    return f"{rules}\n\n{mode_doc(theme)}"
+    icon_rules = ICON_RULES.format(names=", ".join(names())) if theme != "story" else ""
+    return f"{rules}\n\n{icon_rules}\n\n{mode_doc(theme)}"
 
 
 def scene_user(*, prompt: str, duration_ms: int, words: list[dict], style_guide: dict, theme: str,
-               characters: list[dict], previous: str | None, feedback: str | None, transcript: str) -> str:  # fmt: skip
+               characters: list[dict], previous: str | None, feedback: str | None, transcript: str,
+               vocabulary: str = "", neighbours: str = "") -> str:  # fmt: skip
     timing = "\n".join(f"{w['t']:.2f}s  {w['w']}" for w in words) or "(no speech)"
     chars = "\n".join(f"- id '{c['id']}': {c['name']} — {c['description']}" for c in characters) or "(none)"
     parts = [
@@ -174,8 +178,11 @@ def scene_user(*, prompt: str, duration_ms: int, words: list[dict], style_guide:
         f"Shot brief from the director:\n{prompt}",
         f"Global style guide: {style_guide.get('summary', '')} | mood: {style_guide.get('mood', '')} | "
         f"camera: {style_guide.get('camera_language', '')}",
-        f"CHARACTERS (use mhCharacter):\n{chars}",
+        f"CHARACTERS (use mhCharacter):\n{chars}" if theme == "story" else "",
+        vocabulary,
+        neighbours,
     ]
+    parts = [x for x in parts if x]
     if previous:
         parts.append(
             "This shot CONTINUES the previous one. Start from its final frame (same positions/elements) and "
@@ -236,6 +243,51 @@ spoken; arrows sweep between ideas; a confused stick figure for the problem; a c
 
 
 def mode_doc(theme: str) -> str:
-    return {"story": STORY_DOC, "flow": FLOW_DOC, "lecture": LECTURE_DOC, "sketch": SKETCH_DOC}.get(
-        theme, TECH_DOC
+    docs = {"story": STORY_DOC, "flow": FLOW_DOC, "lecture": LECTURE_DOC, "sketch": SKETCH_DOC,
+            "scenario": SCENARIO_DOC}  # fmt: skip
+    return docs.get(theme, TECH_DOC)
+
+
+SCENARIO_DOC = """## Mode "scenario" — the real-world example in action, ON BRAND (no cartoons)
+Background: `<div class="mh-bg"></div>`. People are personas, never drawn bodies:
+  <div class="sc-persona" style="left:480px;top:300px"><div class="ring"><i data-icon="user-round"></i></div>
+  <b>X</b><small>support engineer</small></div>  — the glowing ring matches the creator's face-cam circle.
+Speech: <div class="sc-say" style="left:..;top:..">Why did my order fail?</div> (one short line) · thought: .sc-think
+Places / things from the icon library: <div class="sc-place" style="left:..;top:.."><i data-icon="store"></i><b>Bookstore</b></div>
+Status badges: <span class="sc-badge"><i data-icon="circle-check"></i>Order placed</span>
+Connect things with mhWire / pills / LEDs from the brand kit. Motion: personas fade+scale in, callouts pop on their
+words, a gentle camera push (wrapper scale 1 → 1.04). Never animate facial features; no limbs, no mouths."""
+
+ICON_RULES = """## Icons — ONLY from the fixed icon library (consistency across the whole video)
+Use <i data-icon="NAME"></i> (size with font-size, colour = currentColor / var(--accent)) or mhIcon('NAME') in JS.
+Never draw your own icons or emoji. Available names: {names}"""
+
+
+def vocabulary_block(entities: list[dict], primary_mode: str | None) -> str:
+    if not entities:
+        return ""
+    rows = "\n".join(
+        f"- {e['label']} (id {e['id']}): icon '{e['icon']}', colour role {e.get('color', 'accent')} "
+        f"(class ent-{e.get('color', 'accent')})" + (f" — {e['note']}" if e.get("note") else "")
+        for e in entities
     )
+    return ("VISUAL VOCABULARY for this video — draw every entity EXACTLY like this in every shot (same icon, same "
+            f"colour role, same label text):\n{rows}\nPrimary explanation mode of the video: {primary_mode or 'tech'}.")  # fmt: skip
+
+
+QA_SYSTEM = """You are the senior motion designer reviewing ONE rendered shot of a brand explainer video before the
+creator sees it. You get 3 frames (≈35%, ≈70% and the final frame), the narration, the brief and the visual vocabulary.
+Check, strictly:
+1. Readability: text large enough, nothing clipped, cut off, overlapping or running off-frame.
+2. Composition: balanced, uses the frame (not tiny in a corner, not crammed), clear focal point, safe margins;
+   the bottom-right corner is kept clear for the face-cam circle on long-form.
+3. On brand & consistent: navy background, brand fonts and palette, entities drawn with their vocabulary icon/colour/label.
+4. Explains the narration: the frames clearly show what is being said (not decorative filler, not off-topic).
+5. Mature, professional look: no childish or broken drawings, no stray artefacts, no empty frames late in the shot.
+Reply with ONLY JSON: {"ok": true|false, "score": 1-10, "issues": ["specific, actionable fixes (max 5)"]}.
+ok=false only for problems a viewer would notice; score ≥ 7 with minor nits is ok=true."""
+
+
+def qa_fix_user(issues: list[str]) -> str:
+    return ("A design review of the rendered frames found these problems. Fix ALL of them and return all three "
+            "blocks again (keep what works):\n- " + "\n- ".join(issues))  # fmt: skip

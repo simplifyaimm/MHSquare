@@ -45,3 +45,21 @@ class CoveredTopic(Base):
         ForeignKey("projects.id", ondelete="SET NULL"), nullable=True
     )
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class BrandAsset(Base):
+    """Brand-level media reused across projects (creator headshots for covers)."""
+
+    __tablename__ = "brand_assets"
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
+    kind: Mapped[str] = mapped_column(String(32), default="headshot")
+    storage_key: Mapped[str] = mapped_column(String(512))
+    cutout_key: Mapped[str | None] = mapped_column(String(512), nullable=True)  # transparent PNG
+    status: Mapped[str] = mapped_column(String(16), default="pending")  # pending | ready | failed
+    sha256: Mapped[str] = mapped_column(String(64))
+    size: Mapped[int] = mapped_column(Integer)
+    mime: Mapped[str] = mapped_column(String(100))
+    original_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    meta: Mapped[dict] = mapped_column(JSON, default=dict)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)

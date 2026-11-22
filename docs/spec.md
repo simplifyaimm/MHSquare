@@ -19,7 +19,8 @@ Layers, newest wins on conflict:
 | §4 Topic registry + semantic repeat warning + seed list + auto-add on final | ✅ Topics page, embeddings via LiteLLM (lexical fallback), "Mark script final" |
 | §5 `html_animation` generator (Playwright, virtual time, MP4), brand fonts, style rules, footer, VS Code (Windows) code demos, style lint + one fix round | ✅ |
 | §6 Suggest reply (agree → amplify → tie back), caption formula placeholder | ✅ reply helper on the Brand page; caption formula stored |
-| §6 Thumbnails / covers, Publish Kit descriptions, pinned comment, hashtags | ⏳ pending v2 (Publish Kit) |
+| §6 Thumbnails / covers | ✅ cover generator (YouTube 1280×720 + Shorts/Reels 1080×1920) with creator cut-out |
+| §6 Publish Kit descriptions, pinned comment, hashtags | ⏳ pending v2 (Publish Kit) |
 | §7 Script Studio judge, Shorts Studio vertical re-render, Descript round-trip | ⏳ pending v2 (judge + canvas + lint are ready to be reused) |
 | §8 Data model (StyleProfile, Project fields, CoveredTopic) | ✅ migration 0004 |
 

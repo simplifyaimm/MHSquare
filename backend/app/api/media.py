@@ -79,3 +79,27 @@ def get_media(
             "Content-Length": str(end - start + 1),
         },
     )
+
+
+@router.get("/media/brand/{asset_id}/{variant}")
+def get_brand_media(
+    asset_id: uuid.UUID,
+    variant: str,
+    exp: int = Query(...),
+    sig: str = Query(..., max_length=64),
+    db: Session = Depends(get_db),
+):
+    from fastapi.responses import FileResponse
+
+    from app.core.media_urls import verify_brand
+    from app.models.style import BrandAsset
+
+    if variant not in ("original", "cutout") or not verify_brand(str(asset_id), variant, exp, sig):
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "Invalid or expired media link")
+    a = db.get(BrandAsset, asset_id)
+    key = (a.storage_key if variant == "original" else a.cutout_key) if a else None
+    storage = get_storage()
+    if not key or not storage.exists(key):
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Not found")
+    return FileResponse(storage.path(key), media_type=a.mime if variant == "original" else "image/png",
+                        headers={"Cache-Control": "private, max-age=3600", "X-Content-Type-Options": "nosniff"})  # fmt: skip

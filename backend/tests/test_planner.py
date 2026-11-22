@@ -46,7 +46,10 @@ def test_validate_rejects_unavailable_types_aroll_and_unknown_characters():
         validate_plan({"style_guide": SG, "shots": [shot(1, 3, "a_roll")]}, 3, ["a_roll"], False)
     with pytest.raises(PlanError, match="not defined"):
         validate_plan(
-            {"style_guide": SG, "shots": [shot(1, 3, characters=["zed"])]}, 3, ["code_animation"], False
+            {"style_guide": SG, "shots": [shot(1, 3, characters=["zed"], theme="story")]},
+            3,
+            ["code_animation"],
+            False,
         )
 
 

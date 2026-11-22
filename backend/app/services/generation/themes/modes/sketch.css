@@ -1,6 +1,6 @@
 /* mode "sketch" — whiteboard intuition: dark board, hand-drawn white strokes that draw themselves,
    handwritten notes (Caveat), doodle icons, braces, a thinking stick figure (ref: RAG 500 GB sample). */
-.sk-bg{position:absolute;inset:0;background:#060b14}
+.sk-bg{position:absolute;inset:0;background:linear-gradient(var(--grid-color) 1px,transparent 1px) 0 0/var(--grid) var(--grid),linear-gradient(90deg,var(--grid-color) 1px,transparent 1px) 0 0/var(--grid) var(--grid),linear-gradient(180deg,var(--bg-from),var(--bg-to))}
 .sk-note{position:absolute;font:500 38px/1.1 'Caveat',var(--f-body);color:#e8eef7;white-space:nowrap}
 .sk-note.sm{font-size:30px}.sk-note.lg{font-size:54px}.sk-note.accent{color:var(--accent)}
 .sk-label{position:absolute;font:600 24px/1.2 var(--f-body);color:#e8eef7}

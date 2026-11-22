@@ -44,6 +44,8 @@ class LayoutIn(BaseModel):
     footer_on_animations: bool = True
     shorts_canvas_aspect: Literal["3:4", "9:16"] = "3:4"
     shorts_export: list[int] = [1080, 1920]
+    facecam_circle_shorts: Literal["composite", "off"] = "composite"
+    facecam_ring: dict[str, Any] = {"glow": True, "width_px": 4}
 
     @field_validator("facecam_safe_area")
     @classmethod

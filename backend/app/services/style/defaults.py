@@ -95,9 +95,11 @@ EXPLAIN_MODES = {
     'vectors and maths. Best for concepts, encodings, formulas, comparisons of properties, "three problems with X".',
     "sketch": "Whiteboard intuition: hand-drawn arrows that draw themselves, handwritten notes, doodle icons, a confused "
     'stick figure. Best for framing the problem, "imagine…", rough mental models, analogies.',
-    "story": "Flat cartoon scene with the recurring character X (or a named character): people, situations, "
-    "emotions, the real-world example in action.",
+    "scenario": "The real-world example in action, on brand: X as a line-art persona inside a glowing ring, speech "
+    "callouts, places and things from the icon library. Use for people, situations and the carried example.",
+    "story": "LEGACY flat-cartoon scene (teal room, drawn characters). Off by default: it breaks the brand theme.",
 }
+ENABLED_MODES = ["tech", "flow", "lecture", "sketch", "scenario"]
 
 ANIMATION_STYLE = {
     "background": {"from": "#0a1626", "to": "#060b14", "grid_px": 54, "grid_color": "rgba(72,202,228,0.07)"},
@@ -135,6 +137,10 @@ ANIMATION_STYLE = {
     "allowed_fonts": ["Oswald", "Poppins", "JetBrains Mono", "Consolas", "Caveat"],
     # Explanation modes the planner chooses from per chunk (from the reference samples). Editable.
     "explain_modes": EXPLAIN_MODES,
+    "enabled_modes": ENABLED_MODES,
+    "max_modes_per_video": 3,
+    # vision QA: the code LLM looks at frames of every rendered shot and fixes issues once
+    "qa_review": True,
     "entry": {"stagger_total_s": [4, 6], "hold_final": True},
     "footer": {"enabled": True, "left": "NO HYPE. REAL SYSTEMS.", "right": "@simplifyai.mm"},
     "code_demo": "vscode_windows",  # VS Code on Windows: title-bar controls on the RIGHT, Consolas, #1e1e1e, #007acc
@@ -187,6 +193,9 @@ LAYOUT = {
     "footer_on_animations": True,
     "shorts_canvas_aspect": "3:4",  # 3:4 | 9:16  (final export is always 1080×1920)
     "shorts_export": [1080, 1920],
+    # the creator's face cam is ALWAYS on: long-form bottom-right; shorts in the bottom band under the canvas
+    "facecam_circle_shorts": "composite",  # composite | off
+    "facecam_ring": {"glow": True, "width_px": 4},
 }
 
 CAPTION_FORMULA = """[PLACEHOLDER — fill in your exact save-optimised caption formula here in the Brand page.]

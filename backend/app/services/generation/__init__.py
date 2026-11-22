@@ -32,6 +32,7 @@ from app.services import routing, style
 from app.services.generation import prompts as GP
 from app.services.generation import renderer
 from app.services.generation import scene as S
+from app.services.generation.icons import runtime_js as icon_runtime
 from app.services.generation.lint import lint as lint_scene
 from app.services.ingest.pipeline import latest_asset
 from app.services.storage import get_storage
@@ -142,7 +143,7 @@ def _shot_character_ids(p: Project, shot: Shot) -> list[str]:
 
 def _render_scene(p: Project, sc: S.Scene, theme: str, svgs: dict[str, str], duration_ms: int,
                   extra_html: str = "", extra_css: str = "", probe: str | None = "fail",
-                  profile: StyleProfile | None = None) -> renderer.RenderResult:  # fmt: skip
+                  profile: StyleProfile | None = None, qa_frames: list[float] | None = None) -> renderer.RenderResult:  # fmt: skip
     """Render on the content type's canvas with the brand theme + injected footer (Style Profile)."""
     profile = profile or _profile_for(p)
     cv = style.canvas(profile, p)
@@ -150,10 +151,10 @@ def _render_scene(p: Project, sc: S.Scene, theme: str, svgs: dict[str, str], dur
     return renderer.render(
         html=S.character_templates(svgs) + extra_html + sc.html + style.footer_html(profile, cv),
         css=extra_css + sc.css,
-        js=GP.RUNTIME_JS + "\n" + sc.js,
+        js=GP.RUNTIME_JS + "\n" + icon_runtime() + "\n" + sc.js,
         theme_css=style.theme_css(profile, p, theme, cv),
         width=cv.stage_w, height=cv.stage_h, fps=p.fps, duration_ms=duration_ms, scale=scale,
-        probe={"safe_zones": cv.safe_zones, "mode": probe} if probe else None,
+        probe={"safe_zones": cv.safe_zones, "mode": probe} if probe else None, qa_frames=qa_frames,
     )  # fmt: skip
 
 
@@ -167,14 +168,18 @@ def _profile_for(p: Project) -> StyleProfile:
 def _lint(sc: S.Scene, profile: StyleProfile, theme: str) -> list[str]:
     a = profile.animation_style or {}
     b = profile.brand or {}
-    return lint_scene(
+    from app.services.generation.icons import icons
+    from app.services.generation.lint import lint_icons
+
+    return lint_icons(sc, set(icons())) + lint_scene(
         sc,
         palette=list((a.get("palette") or {}).values()) + list(a.get("neutrals") or []),
         allowed_fonts=a.get("allowed_fonts") or ["Oswald", "Poppins", "JetBrains Mono", "Consolas"],
-        theme=theme, story_palette=a.get("story_palette") or [],
+        theme=theme,
+        story_palette=a.get("story_palette") or [],
         handle=(a.get("footer") or {}).get("right") or b.get("handle", ""),
         tagline=(a.get("footer") or {}).get("left", ""),
-    )  # fmt: skip
+    )
 
 
 def write_and_render(db: Session, p: Project, shot: Shot, take: Take, model: str, fallbacks: list[str], *,
@@ -185,7 +190,9 @@ def write_and_render(db: Session, p: Project, shot: Shot, take: Take, model: str
     previous = None
     if shot.depends_on_previous and shot.index > 0:
         prev = db.scalar(select(Shot).where(Shot.project_id == p.id, Shot.index == shot.index - 1))
-        ptake = _best_take(db, prev) if prev and prev.theme == shot.theme else None  # only continue within a mode
+        ptake = (
+            _best_take(db, prev) if prev and prev.theme == shot.theme else None
+        )  # only continue within a mode
         previous = ptake.code if ptake else None
     user = GP.scene_user(
         prompt=brief, duration_ms=shot.duration_ms, words=shot_words(db, shot), style_guide=p.style_guide or {},
@@ -194,6 +201,12 @@ def write_and_render(db: Session, p: Project, shot: Shot, take: Take, model: str
     )  # fmt: skip
     profile = style.active(db)
     cv = style.canvas(profile, p)
+    sg = p.style_guide or {}
+    vocab_ids = (sg.get("shot_entities") or {}).get(str(shot.index), [])
+    ents = [e for e in sg.get("entities", []) if not vocab_ids or e["id"] in vocab_ids] or sg.get(
+        "entities", []
+    )
+    user += "\n\n" + GP.vocabulary_block(ents, sg.get("primary_mode")) if ents else ""
     messages = [{"role": "user", "content": user}]
     system = (
         GP.scene_system(shot.theme, cv.stage_w, cv.stage_h)
@@ -201,9 +214,20 @@ def write_and_render(db: Session, p: Project, shot: Shot, take: Take, model: str
         + style.animation_rules(profile, p, shot.theme, cv)
     )
     take.prompt_used = user
-    take.meta = {**(take.meta or {}), "style_profile_version": profile.version, "canvas": cv.label, "theme": shot.theme}
+    take.meta = {
+        **(take.meta or {}),
+        "style_profile_version": profile.version,
+        "canvas": cv.label,
+        "theme": shot.theme,
+    }
+    qa_on = bool((profile.animation_style or {}).get("qa_review", True))
+    dur_s = shot.duration_ms / 1000
+    qa_times = [round(dur_s * 0.35, 3), round(dur_s * 0.7, 3), round(max(0.0, dur_s - 1 / p.fps), 3)]
     logs: list[str] = []
-    for attempt in range(2):
+    tech_fix_used = qa_fix_used = False
+    fallback: renderer.RenderResult | None = None
+    lint_issues: list[str] = []
+    for _ in range(3):  # first draft · ≤1 technical fix · ≤1 vision-QA polish
         text, res = llm.chat(
             model, messages, system=system, fallbacks=fallbacks, max_tokens=16000, temperature=0.5
         )
@@ -213,32 +237,48 @@ def write_and_render(db: Session, p: Project, shot: Shot, take: Take, model: str
         try:
             sc = S.parse(text)
             S.check(sc)  # security: always enforced
-            issues = _lint(sc, profile, shot.theme)
-            if issues and attempt == 0:
-                raise S.SceneError("style lint: " + " | ".join(issues))
-            take.code = json.dumps(sc.as_dict())
-            # first attempt: layout problems abort before rendering (cheap) and go back to the LLM;
-            # after the fix round they're recorded as warnings and the shot still renders
+            lint_issues = _lint(sc, profile, shot.theme)
+            if lint_issues and not tech_fix_used:
+                raise S.SceneError("style lint: " + " | ".join(lint_issues))
+            # before the technical fix is used, layout problems abort cheaply (no frames rendered)
             result = _render_scene(p, sc, shot.theme, svgs, shot.duration_ms, extra_html, extra_css,
-                                   probe="fail" if attempt == 0 else "warn", profile=profile)  # fmt: skip
-            take.meta = {**(take.meta or {}), "render_s": result.info.get("render_s"),
-                         "timeline_s": result.info.get("timeline_s"), "fix_rounds": attempt,
-                         "lint": "pass" if not issues else "warnings", "lint_warnings": issues,
-                         "layout_warnings": result.info.get("layout_warnings", [])}  # fmt: skip
-            logs += result.info.get("logs", [])
-            take.logs = logs[-60:]
-            return result.video, result.thumb
+                                   probe="warn" if tech_fix_used else "fail", profile=profile,
+                                   qa_frames=qa_times if qa_on and not qa_fix_used else None)  # fmt: skip
         except (S.SceneError, renderer.RenderError) as e:
             elogs = getattr(e, "logs", [])
-            logs += [f"attempt {attempt + 1}: {e}", *elogs]
+            logs += [f"{e}", *elogs]
             take.logs = logs[-60:]
-            if attempt == 1:
+            if fallback is not None:  # the QA polish broke the scene → keep the earlier good render
+                logs.append("QA polish failed; kept the previous render")
+                result = fallback
+                break
+            if tech_fix_used:
                 raise GenerationError(f"scene failed after a fix attempt: {e}", logs) from e
+            tech_fix_used = True
             messages += [
                 {"role": "assistant", "content": text},
                 {"role": "user", "content": GP.fix_user(str(e), elogs)},
             ]
-    raise GenerationError("unreachable")
+            continue
+        take.code = json.dumps(sc.as_dict())
+        logs += result.info.get("logs", [])
+        if qa_on and not qa_fix_used and result.qa_frames:
+            verdict, qcost = vision_qa(model, fallbacks, shot, ents, profile, result.qa_frames)
+            cost += qcost
+            take.cost_usd = round(cost, 5)
+            take.meta = {**take.meta, "qa": verdict}
+            if not verdict.get("ok", True) and verdict.get("issues"):
+                qa_fix_used = True
+                fallback = result
+                messages += [{"role": "assistant", "content": text},
+                             {"role": "user", "content": GP.qa_fix_user(verdict["issues"])}]  # fmt: skip
+                continue
+        break
+    take.meta = {**(take.meta or {}), "render_s": result.info.get("render_s"), "timeline_s": result.info.get("timeline_s"),
+                 "fix_rounds": int(tech_fix_used) + int(qa_fix_used), "lint": "pass" if not lint_issues else "warnings",
+                 "lint_warnings": lint_issues, "layout_warnings": result.info.get("layout_warnings", [])}  # fmt: skip
+    take.logs = logs[-60:]
+    return result.video, result.thumb
 
 
 # ---------------------------------------------------------------- text card (template, free)
@@ -479,6 +519,37 @@ def standalone_html(db: Session, take: Take) -> str:
     svgs = (p.style_guide or {}).get("character_svgs", {}) if shot.theme == "story" else {}
     return renderer.standalone(
         html=S.character_templates(svgs) + sc.html + style.footer_html(profile, cv), css=sc.css,
-        js=GP.RUNTIME_JS + "\n" + sc.js, theme_css=style.theme_css(profile, p, shot.theme, cv),
+        js=GP.RUNTIME_JS + "\n" + icon_runtime() + "\n" + sc.js, theme_css=style.theme_css(profile, p, shot.theme, cv),
         width=cv.stage_w, height=cv.stage_h, title=f"{p.name} — shot {shot.index + 1}",
     )  # fmt: skip
+
+
+def vision_qa(model: str, fallbacks: list[str], shot: Shot, entities: list[dict], profile: StyleProfile,
+              frames: list[Path]) -> tuple[dict, float]:  # fmt: skip
+    """The code LLM looks at frames of its own render and judges them against a checklist."""
+    parts: list[dict] = [{"type": "text", "text": (
+        f"Narration: “{shot.transcript_text}”\nBrief: {shot.prompt[:3000]}\nMode: {shot.theme}\n"
+        + (GP.vocabulary_block(entities, None) if entities else ""))}]  # fmt: skip
+    for f in frames:
+        b64 = base64.b64encode(f.read_bytes()).decode()
+        parts.append({"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{b64}"}})
+    try:
+        text, res = llm.chat(model, [{"role": "user", "content": parts}], system=GP.QA_SYSTEM, fallbacks=fallbacks,
+                             max_tokens=1500, temperature=0.1)  # fmt: skip
+        from app.services.planner import extract_json
+
+        v = extract_json(text)
+        verdict = {
+            "ok": bool(v.get("ok", True)),
+            "score": v.get("score"),
+            "issues": [str(i) for i in v.get("issues", [])][:5],
+        }
+        return verdict, res.cost_usd
+    except LLMError:
+        raise
+    except Exception as e:  # noqa: BLE001 — QA must never block a usable render
+        log.warning("vision QA skipped: %s", e)
+        return {"ok": True, "skipped": str(e)[:200]}, 0.0
+    finally:
+        for f in frames:
+            f.unlink(missing_ok=True)

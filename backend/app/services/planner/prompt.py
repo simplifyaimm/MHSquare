@@ -35,8 +35,12 @@ SEGMENTS with exact timestamps, which visual types are available, and whether fa
      splits into three stacked partition cards P0–P2';
    - what is highlighted/emphasised and the calm final frame.
    Keep on-screen text minimal — visuals support the narration, they don't repeat it.
-10. For story scenes, name recurring characters and describe them in the style guide so every scene
-    draws them identically. Set uses_character=true on shots where a character appears.
+10. VISUAL VOCABULARY: list every recurring thing (services, tools, data, people such as X) once in
+    style_guide.entities with a fixed icon from the icon library, a colour role and a short label. Shots reference
+    them by id in `entities`; every scene then draws them identically. Pick ONE primary_mode for the video and use
+    at most the number of modes allowed in the BRAND brief — consistency beats variety.
+11. The real-world example (X) runs through the whole video; show X with the scenario mode, never cartoons.
+12. Icon library names: {icons}
 
 ## Output
 Reply with ONLY a JSON object (no prose) of this shape:
@@ -45,10 +49,12 @@ Reply with ONLY a JSON object (no prose) of this shape:
     "summary": "one line on the overall look",
     "mood": "...", "camera_language": "...", "typography": "...",
     "palette": {"tech": ["#0b1222", "#6ea8ff", "..."], "story": ["#8fd0c4", "..."]},
-    "characters": [{"id": "robin", "name": "Robin", "description": "appearance, clothes, colours, personality"}]
+    "characters": [],
+    "primary_mode": "tech",
+    "entities": [{"id": "kafka", "label": "Kafka", "icon": "server", "color": "accent", "note": "the hub"}]
   },
   "shots": [
-    {"from_segment": 1, "to_segment": 2, "visual_type": "code_animation", "theme": "tech",
+    {"from_segment": 1, "to_segment": 2, "visual_type": "code_animation", "theme": "tech", "entities": ["kafka"],
      "prompt": "...", "depends_on_previous": false, "uses_character": false, "characters": [],
      "notes": "why this visual"}
   ]
@@ -82,3 +88,9 @@ def repair_message(errors: str) -> str:
 {errors}
 
 Return the complete corrected JSON object only."""
+
+
+def system_prompt() -> str:
+    from app.services.generation.icons import names
+
+    return SYSTEM.replace("{icons}", ", ".join(names()))

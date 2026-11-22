@@ -118,16 +118,15 @@ def _overlays(p, profile, cv: style.Canvas, video: Path, work: Path, W: int, H: 
     storage = get_storage()
     inputs, chains, last = ["-i", str(video)], [], "0:v"
     cam = None
-    if not cv.is_short and cv.facecam_circle == "composite":
+    if cv.facecam_circle == "composite":
         with get_sessionmaker()() as db:
             cam = latest_asset(db, p.id, AssetKind.facecam_final)
     if cam is not None and storage.exists(cam.storage_key):
-        zone = cv.safe_zones[0]
-        sx = W / cv.stage_w
-        d = int(min(zone["w"], zone["h"]) * sx * 0.82) // 2 * 2
-        cx = int((zone["x"] + zone["w"] / 2) * sx - d / 2)
-        cy = int((zone["y"] + zone["h"] / 2) * sx - d / 2)
-        ring = d + 6
+        cx, cy, d = facecam_geometry(cv, W, H)
+        ring_w = max(2, round(d * 0.022))  # accent ring, like the creator's photos
+        glow = max(4, round(d * 0.07))  # soft outer glow
+        size = d + 2 * (ring_w + 3 * glow)
+        c, r_in, r_out = size / 2, d / 2 - 1, d / 2 + ring_w
         acc = style.accent(profile, p).lstrip("#")
         inputs += [
             "-i",
@@ -135,15 +134,16 @@ def _overlays(p, profile, cv: style.Canvas, video: Path, work: Path, W: int, H: 
             "-f",
             "lavfi",
             "-i",
-            f"color=c=0x{acc}:s={ring}x{ring}",
+            f"color=c=0x{acc}:s={size}x{size}",
         ]
         chains += [
             f"[1:v]crop='min(iw,ih)':'min(iw,ih)',scale={d}:{d},format=yuva420p,"
             f"geq=lum='p(X,Y)':cb='p(X,Y)':cr='p(X,Y)':a='if(lte(hypot(X-{d / 2},Y-{d / 2}),{d / 2 - 1}),255,0)'[cam]",
-            f"[2:v]format=yuva420p,geq=lum='p(X,Y)':cb='p(X,Y)':cr='p(X,Y)':"
-            f"a='if(lte(hypot(X-{ring / 2},Y-{ring / 2}),{ring / 2 - 1}),255,0)'[ring]",
-            f"[{last}][ring]overlay={cx - 3}:{cy - 3}:shortest=1[v1]",
-            "[v1][cam]overlay=" + f"{cx}:{cy}:eof_action=pass[v2]",
+            # ring + gaussian-ish glow outside it (alpha only), transparent inside
+            f"[2:v]format=yuva420p,geq=lum='p(X,Y)':cb='p(X,Y)':cr='p(X,Y)':a='if(lt(hypot(X-{c},Y-{c}),{r_in}),0,"
+            f"if(lte(hypot(X-{c},Y-{c}),{r_out}),255,230*exp(-pow(hypot(X-{c},Y-{c})-{r_out},2)/{2 * glow * glow})))'[ring]",
+            f"[{last}][ring]overlay={int(cx - size / 2)}:{int(cy - size / 2)}:shortest=1[v1]",
+            f"[v1][cam]overlay={int(cx - d / 2)}:{int(cy - d / 2)}:eof_action=pass[v2]",
         ]
         last = "v2"
     text = style.watermark_text(profile)
@@ -161,3 +161,17 @@ def _overlays(p, profile, cv: style.Canvas, video: Path, work: Path, W: int, H: 
     _ffmpeg(*inputs, "-filter_complex", ";".join(chains), "-map", f"[{last}]", "-an", "-c:v", "libx264",
             "-preset", preset, "-crf", crf, "-pix_fmt", "yuv420p", str(out))  # fmt: skip
     return out
+
+
+def facecam_geometry(cv: style.Canvas, W: int, H: int) -> tuple[float, float, int]:  # noqa: N803
+    """Centre (x, y) and diameter of the face-cam circle in output pixels."""
+    if cv.safe_zones:  # long-form, or shorts with a full 9:16 canvas: centred in the keep-clear zone
+        z = cv.safe_zones[0]
+        sx = W / cv.export_w
+        d = int(min(z["w"], z["h"]) * sx * 0.82) // 2 * 2
+        return (z["x"] + z["w"] / 2) * sx, (z["y"] + cv.offset_y + z["h"] / 2) * sx, d
+    # shorts with a 3:4 canvas: in the bottom band under the animation, right-aligned
+    sx = W / cv.export_w
+    band = cv.offset_y * sx
+    d = int(band * 0.86) // 2 * 2
+    return W - d / 2 - 36 * sx, H - band / 2, d

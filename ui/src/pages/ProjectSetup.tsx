@@ -73,6 +73,11 @@ export function ProjectSetupPage() {
               />
               <ScriptLibraryPicker projectId={p.id} />
               <ScriptCheckPanel p={p} />
+              {p.assets.some((a) => a.kind === "script") && (
+                <Link to={`/projects/${p.id}/covers`} className="text-sm text-accent hover:underline">
+                  Design cover photos for this script →
+                </Link>
+              )}
             </>
           )}
           {step === 1 && <NarrationStep p={p} />}

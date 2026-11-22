@@ -104,3 +104,10 @@ def lint(scene: Scene, *, palette: list[str], allowed_fonts: list[str], theme: s
             "hand-drawn footer/handle/tagline — mhsquare adds the footer automatically; remove yours"
         )
     return issues
+
+
+def lint_icons(scene: Scene, known: set[str]) -> list[str]:
+    used = set(re.findall(r'data-icon\s*=\s*["\']([\w-]+)["\']', scene.html + scene.js))
+    used |= set(re.findall(r"mhIcon\(\s*['\"]([\w-]+)['\"]", scene.js))
+    unknown = sorted(used - known)
+    return [f"unknown icons {', '.join(unknown)} — use only names from the icon library"] if unknown else []

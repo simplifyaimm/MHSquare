@@ -13,7 +13,6 @@ from app.llm.errors import ErrorKind, LLMError
 from app.models import Asset, AssetKind, Project, ProjectStatus, Transcript
 from app.services.generation import prompts as GP
 from app.services.generation import renderer
-from app.services.planner import prompt as PP
 from app.services.storage import get_storage
 from app.workers.celery_app import celery_app
 from tests.test_scene_and_llm import GOOD
@@ -23,11 +22,12 @@ WORDS = [("Meet", 0, 300), ("Robin.", 350, 900), ("Kafka", 1500, 1900), ("is", 1
 DURATION = 5000
 
 PLAN = {
-    "style_guide": {"summary": "navy tech + teal story", "mood": "calm",
-                    "characters": [{"id": "robin", "name": "Robin", "description": "glasses, red tie"}]},
+    "style_guide": {"summary": "navy brand explainer", "mood": "calm", "primary_mode": "tech", "characters": [],
+                    "entities": [{"id": "x", "label": "X", "icon": "user-round", "color": "accent"},
+                                 {"id": "kafka", "label": "Kafka", "icon": "server", "color": "series"}]},
     "shots": [
-        {"from_segment": 1, "to_segment": 1, "visual_type": "code_animation", "theme": "story",
-         "prompt": "Robin waves; bubble 'Meet Robin!'", "characters": ["robin"]},
+        {"from_segment": 1, "to_segment": 1, "visual_type": "code_animation", "theme": "scenario",
+         "prompt": "X persona appears; callout 'Meet X!'", "entities": ["x"]},
         {"from_segment": 2, "to_segment": 2, "visual_type": "code_animation", "theme": "tech",
          "prompt": "Card 'Kafka' with eyebrow 'COMMIT LOG'"},
         {"from_segment": 3, "to_segment": 3, "visual_type": "text_card", "theme": "tech",
@@ -50,7 +50,7 @@ class FakeLLM:
         if self.fail_next:
             err, self.fail_next = self.fail_next, None
             raise err
-        if system == PP.SYSTEM:
+        if system and "director of mhsquare" in system:
             text = json.dumps(PLAN)
         elif system == GP.CHARACTER_SYSTEM:
             text = SVG
@@ -126,7 +126,7 @@ def test_plan_generate_review_preview(fakes, ready_project):
     assert data["status"] == "planned", data["error"]
     shots = data["shots"]
     assert [(s["start_ms"], s["end_ms"], s["visual_type"], s["theme"]) for s in shots] == [
-        (0, 1500, "code_animation", "story"),
+        (0, 1500, "code_animation", "scenario"),
         (1500, 3500, "code_animation", "tech"),
         (3500, 5000, "text_card", "tech"),
     ]
@@ -141,13 +141,18 @@ def test_plan_generate_review_preview(fakes, ready_project):
     assert r.json()["queued"] == 3
     data = c.get(f"/api/projects/{pid}/shots").json()
     assert [s["state"] for s in data["shots"]] == ["review"] * 3, [s["error"] for s in data["shots"]]
-    assert data["characters_drawn"] == ["robin"]  # character rig drawn once
+    assert data["characters_drawn"] == []  # no cartoon rigs in on-brand modes
     t0 = data["shots"][0]["takes"][0]
     assert t0["video_url"] and t0["thumb_url"] and t0["cost_usd"] > 0
-    # story scene got the character template + helper runtime; text card is free (no LLM)
+    # scenario scene: brand kit + scenario kit + fixed icon library + vocabulary; text card is free (no LLM)
     story_req = rend.requests[0]
-    assert 'id="mh-char-robin"' in story_req["html"] and "mhCharacter" in story_req["js"]
-    assert "st-bg" in story_req["theme_css"] and story_req["duration_ms"] == 1500
+    assert "MH_ICONS" in story_req["js"] and "mhIcon" in story_req["js"]
+    assert ".sc-persona" in story_req["theme_css"] and story_req["duration_ms"] == 1500
+    scen_prompt = next(x for x in llm.calls if x["system"] and "sc-persona" in x["system"])
+    assert (
+        "VISUAL VOCABULARY" in scen_prompt["messages"][0]["content"]
+        and "icon 'user-round'" in scen_prompt["messages"][0]["content"]
+    )
     assert (
         data["shots"][2]["takes"][0]["model"] == "template" and data["shots"][2]["takes"][0]["cost_usd"] == 0
     )

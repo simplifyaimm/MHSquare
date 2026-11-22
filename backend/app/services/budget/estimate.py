@@ -10,6 +10,7 @@ PER_GENERATOR = {
     "template": 0.0,
     "passthrough": 0.0,
     "image": 0.08 + 0.10,  # one image + the overlay scene
+    "qa_review": 0.02,  # vision QA per shot (3 frames)
     "video_per_second": 0.40,
 }
 CHARACTER_DESIGN = 0.10

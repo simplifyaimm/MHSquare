@@ -30,8 +30,8 @@ FROM base AS ml
 # CPU-only torch first so whisperx doesn't pull multi-GB CUDA wheels.
 RUN pip install torch==2.8.0 torchaudio==2.8.0 torchvision==0.23.0 \
       --index-url https://download.pytorch.org/whl/cpu \
- && pip install whisperx==3.8.6
-ENV HF_HOME=/models/hf TORCH_HOME=/models/torch
+  && pip install whisperx==3.8.6 "rembg[cpu]==2.0.87"
+ENV HF_HOME=/models/hf TORCH_HOME=/models/torch U2NET_HOME=/models/u2net
 RUN mkdir -p /models && chown app:app /models
 COPY . .
 RUN mkdir -p /data/storage && chown -R app:app /data /app

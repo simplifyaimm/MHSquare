@@ -13,7 +13,7 @@ from app.services.style import defaults as D
 FIELDS = ["language", "brand", "voice_rules", "judge_rubric", "audience_default", "presets", "animation_style",
           "layout", "caption_formula", "reply_framework"]  # fmt: skip
 THEMES_DIR = Path(__file__).resolve().parent.parent / "generation" / "themes"
-EXPLAIN_MODES = ["tech", "flow", "lecture", "sketch", "story"]
+EXPLAIN_MODES = ["tech", "flow", "lecture", "sketch", "scenario", "story"]
 
 
 def as_dict(p: StyleProfile) -> dict:
@@ -33,6 +33,31 @@ def ensure_seeded(db: Session) -> None:
             db.add(CoveredTopic(title=title, pillar=pillar, content_type=ctype, status=status))
     db.commit()
     _upgrade_explain_modes(db)
+    _upgrade_consistency(db)
+
+
+def _upgrade_consistency(db: Session) -> None:
+    """v3 defaults: scenario mode, cartoon story off, mode cap, vision QA, face cam always on (new version)."""
+    cur = db.scalar(select(StyleProfile).where(StyleProfile.is_active.is_(True)))
+    if cur is None or "enabled_modes" in (cur.animation_style or {}):
+        return
+    a = dict(cur.animation_style or {})
+    a["explain_modes"] = {
+        **D.EXPLAIN_MODES,
+        **{k: v for k, v in a.get("explain_modes", {}).items() if k != "story"},
+    }
+    a["explain_modes"]["story"] = D.EXPLAIN_MODES["story"]
+    a.update(enabled_modes=D.ENABLED_MODES, max_modes_per_video=3, qa_review=True)
+    lay = {
+        **(cur.layout or {}),
+        "facecam_circle_shorts": "composite",
+        "facecam_ring": {"glow": True, "width_px": 4},
+    }
+    save_version(
+        db,
+        {"animation_style": a, "layout": lay},
+        "Consistency: scenario mode, cartoon off, max 3 modes, vision QA, face cam always on",
+    )
 
 
 def _upgrade_explain_modes(db: Session) -> None:
@@ -113,11 +138,16 @@ def canvas(profile: StyleProfile, project: Project) -> Canvas:
     )
     if is_short(project.content_type):
         ew, eh = lay.get("shorts_export", [1080, 1920])
+        cam = lay.get("facecam_circle_shorts", "composite")
+        cam = None if cam == "off" else cam
         if lay.get("shorts_canvas_aspect", "3:4") == "9:16":
-            sw, sh = ew, eh
-        else:
-            sw, sh = ew, round(ew * 4 / 3)
-        return Canvas(sw, sh, ew, eh, (eh - sh) // 2, True, [], footer, None)
+            # full-frame canvas: the face-cam circle sits over the animation → keep its corner clear
+            zones = ([{"name": "face-cam circle (bottom-right)", "x": ew - 330, "y": eh - 420, "w": 330, "h": 420}]
+                     if cam else [])  # fmt: skip
+            return Canvas(ew, eh, ew, eh, 0, True, zones, footer, cam)
+        sh = round(ew * 4 / 3)
+        # 3:4 canvas: the circle lives in the bottom band below the canvas → no zone inside the animation
+        return Canvas(ew, sh, ew, eh, (eh - sh) // 2, True, [], footer, cam)
     w, h = (1920, 1080)
     sa = lay.get("facecam_safe_area", {"w_pct": 22, "h_pct": 22})
     zw, zh = round(w * sa["w_pct"] / 100), round(h * sa["h_pct"] / 100)
@@ -185,15 +215,12 @@ def planner_brief(profile: StyleProfile, project: Project, has_facecam: bool) ->
         f" · topic kind: {project.topic_kind or '—'}",
         f"Preset rules: {ps.get('rules', '')}",
         "Visual rules: " + " ".join((profile.animation_style or {}).get("rules", [])),
-        "EXPLANATION MODES (shot `theme`; choose the best one for EACH chunk, vary them across the video, keep one mode"
-        " through a continuous depends_on_previous chain):\n"
-        + "\n".join(
-            f"  - {k}: {v}" for k, v in ((profile.animation_style or {}).get("explain_modes") or {}).items()
-        ),
+        _modes_brief(profile),
     ]
     if cv.is_short:
-        lines.append(f"SHORTS layout: animation canvas {cv.label} fills the frame; no face during animation segments."
-                     + (" a_roll only for genuine talking-to-camera moments." if has_facecam else ""))  # fmt: skip
+        lines.append(f"SHORTS layout: animation canvas {cv.label} fills the frame. The creator's face cam is a small"
+                     " circle that stays on screen the whole time (composited separately) — never plan a_roll for"
+                     " animation segments; a_roll only for genuine talking-to-camera moments.")  # fmt: skip
     else:
         lines.append("LONG-FORM layout: the full frame always shows visuals. NEVER plan a_roll shots — the face cam is a"
                      " persistent small circle bottom-right, not a shot. Keep the bottom-right 22%×22% free of"
@@ -232,3 +259,18 @@ def animation_rules(profile: StyleProfile, project: Project, theme: str, cv: Can
 
 def watermark_text(profile: StyleProfile) -> str:
     return (profile.brand or {}).get("watermark") or (profile.brand or {}).get("handle", "")
+
+
+def enabled_modes(profile: StyleProfile) -> list[str]:
+    a = profile.animation_style or {}
+    return list(a.get("enabled_modes") or a.get("explain_modes", {}).keys() or EXPLAIN_MODES)
+
+
+def _modes_brief(profile: StyleProfile) -> str:
+    a = profile.animation_style or {}
+    desc = a.get("explain_modes") or {}
+    n = int(a.get("max_modes_per_video", 3))
+    rows = "\n".join(f"  - {m}: {desc.get(m, '')}" for m in enabled_modes(profile))
+    return (f"EXPLANATION MODES (shot `theme`). ONE video = ONE visual language: pick a primary_mode and use at most {n}"
+            " modes in total, each only where it clearly explains better; keep one mode through a depends_on_previous"
+            f" chain. Enabled modes:\n{rows}")  # fmt: skip

@@ -162,13 +162,14 @@ export const TYPE_COLOR: Record<VisualType, string> = {
   a_roll: "#22C55E",
 };
 
-export type ExplainMode = "tech" | "flow" | "lecture" | "sketch" | "story";
+export type ExplainMode = "tech" | "flow" | "lecture" | "sketch" | "scenario" | "story";
 export const MODES: { id: ExplainMode; label: string; hint: string }[] = [
   { id: "tech", label: "Tech", hint: "system explainer — panels, pills, wiring, code" },
   { id: "flow", label: "Flow", hint: "protocol / sequence — numbered steps on arrows" },
   { id: "lecture", label: "Lecture", hint: "tables, maths, numbered points with evidence" },
   { id: "sketch", label: "Sketch", hint: "hand-drawn whiteboard intuition" },
-  { id: "story", label: "Story", hint: "cartoon scene with a character" },
+  { id: "scenario", label: "Scenario", hint: "X in a real situation — on-brand personas" },
+  { id: "story", label: "Story (legacy)", hint: "flat cartoon — off-brand, off by default" },
 ];
 
 export const useRenderFinal = (pid: string) => useAct(pid, () => post(`/projects/${pid}/render-final`));

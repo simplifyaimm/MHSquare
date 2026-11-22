@@ -1,6 +1,6 @@
 /* mode "lecture" — calm chalk-talk: chapter tag, centred section title, tables/matrices filling cell by cell,
    numbered points with visual evidence on the right (ref: one-hot encoding sample). */
-.lx-bg{position:absolute;inset:0;background:linear-gradient(180deg,#132036,#0a1626)}
+.lx-bg{position:absolute;inset:0;background:linear-gradient(var(--grid-color) 1px,transparent 1px) 0 0/var(--grid) var(--grid),linear-gradient(90deg,var(--grid-color) 1px,transparent 1px) 0 0/var(--grid) var(--grid),linear-gradient(180deg,var(--bg-from),var(--bg-to))}
 .lx-chapter{position:absolute;left:var(--safe-x);top:calc(var(--safe-top) - 20px);display:flex;align-items:center;gap:14px;
   padding-left:14px;border-left:5px solid var(--warn);font:500 30px/1 var(--f-body);color:#e8eef7}
 .lx-chapter b{font:600 30px/1 var(--f-mono);color:var(--warn)}

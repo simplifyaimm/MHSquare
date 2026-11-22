@@ -4,7 +4,7 @@ from fastapi import APIRouter, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 import app.workers.tasks  # noqa: F401  (registers pipeline dispatch)
-from app.api import auth, health, media, projects, settings_llm, shots, style
+from app.api import auth, covers, health, media, projects, settings_llm, shots, style
 from app.core.bootstrap import ensure_admin_user
 from app.core.config import get_settings
 from app.core.db import get_sessionmaker
@@ -45,6 +45,7 @@ def create_app() -> FastAPI:
     api.include_router(media.router)
     api.include_router(shots.router)
     api.include_router(style.router)
+    api.include_router(covers.router)
     app.include_router(api)
     return app
 

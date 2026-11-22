@@ -22,3 +22,12 @@ def signed_media_url(asset_id: uuid.UUID | str, ttl_s: int | None = None) -> str
 
 def verify(asset_id: str, exp: int, sig: str) -> bool:
     return exp >= time.time() and hmac.compare_digest(_sig(asset_id, exp), sig)
+
+
+def signed_brand_url(asset_id: uuid.UUID | str, variant: str, ttl_s: int | None = None) -> str:
+    exp = int(time.time()) + (ttl_s or get_settings().media_url_ttl_s)
+    return f"/api/media/brand/{asset_id}/{variant}?exp={exp}&sig={_sig(f'brand:{asset_id}:{variant}', exp)}"
+
+
+def verify_brand(asset_id: str, variant: str, exp: int, sig: str) -> bool:
+    return exp >= time.time() and hmac.compare_digest(_sig(f"brand:{asset_id}:{variant}", exp), sig)

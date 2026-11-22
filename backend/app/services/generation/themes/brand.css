@@ -76,3 +76,9 @@ svg.mh-wires .dot{fill:var(--accent);stroke:none;filter:drop-shadow(0 0 8px var(
 .mh-bar{height:14px;border-radius:999px;background:#1b2a40;overflow:hidden}
 .mh-bar>i{display:block;height:100%;border-radius:inherit;background:var(--accent)}
 .mh-divider-v{position:absolute;width:1px;background:#1b2a40}.mh-divider-h{position:absolute;height:1px;background:#1b2a40}
+/* fixed icon library: <i data-icon="database"></i> — size with font-size or width/height; colour = currentColor */
+[data-icon]{display:inline-flex;width:1em;height:1em;font-size:36px;color:var(--accent);line-height:0}
+[data-icon] svg.mh-ic,svg.mh-ic{width:100%;height:100%}
+/* entity colour roles from the visual vocabulary: .ent-accent .ent-warn .ent-good .ent-growth .ent-series .ent-tools .ent-advice */
+.ent-warn{--accent:var(--warn)}.ent-good{--accent:var(--good)}.ent-growth{--accent:var(--growth)}
+.ent-series{--accent:var(--series)}.ent-tools{--accent:var(--tools)}.ent-advice{--accent:var(--advice)}.ent-neutral{--accent:#c5d0e0}

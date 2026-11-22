@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { History, Loader2, MessageSquareReply, RotateCcw, Save } from "lucide-react";
+import { CreatorPhotos } from "@/components/CreatorPhotos";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input, Label } from "@/components/ui/input";
@@ -307,6 +308,7 @@ function BrandEditor({ profile }: { profile: StyleProfile }) {
         )}
       </div>
 
+      <CreatorPhotos />
       <Versions resetting={reset.isPending} onReset={() => reset.mutate()} />
       <ReplyHelper />
     </div>

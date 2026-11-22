@@ -41,6 +41,17 @@ class Character(BaseModel):
     description: str
 
 
+ColorRole = Literal["accent", "warn", "good", "growth", "series", "tools", "advice", "neutral"]
+
+
+class Entity(BaseModel):
+    id: str = Field(pattern=r"^[a-z0-9_-]{1,40}$")
+    label: str = Field(min_length=1, max_length=40)
+    icon: str
+    color: ColorRole = "accent"
+    note: str = ""
+
+
 class StyleGuide(BaseModel):
     summary: str = ""
     mood: str = ""
@@ -48,13 +59,16 @@ class StyleGuide(BaseModel):
     typography: str = ""
     palette: dict[str, list[str]] = Field(default_factory=dict)
     characters: list[Character] = Field(default_factory=list)
+    primary_mode: str = "tech"
+    entities: list[Entity] = Field(default_factory=list)  # visual vocabulary, reused by every shot
 
 
 class PlannedShot(BaseModel):
     from_segment: int = Field(ge=1)
     to_segment: int = Field(ge=1)
     visual_type: Literal["code_animation", "ai_clip", "still_image", "text_card", "a_roll"]
-    theme: Literal["tech", "flow", "lecture", "sketch", "story"] = "tech"
+    theme: Literal["tech", "flow", "lecture", "sketch", "scenario", "story"] = "tech"
+    entities: list[str] = Field(default_factory=list)
     prompt: str = Field(min_length=10)
     depends_on_previous: bool = False
     uses_character: bool = False
@@ -105,7 +119,8 @@ def extract_json(text: str) -> dict:
     return json.loads(raw)
 
 
-def validate_plan(data: dict, n_segments: int, allowed: list[str], has_facecam: bool) -> Plan:
+def validate_plan(data: dict, n_segments: int, allowed: list[str], has_facecam: bool,
+                  modes: list[str] | None = None, max_modes: int = 3) -> Plan:  # fmt: skip
     plan = Plan.model_validate(data)
     errors: list[str] = []
     expected = 1
@@ -121,8 +136,37 @@ def validate_plan(data: dict, n_segments: int, allowed: list[str], has_facecam: 
         expected = s.to_segment + 1
     if expected != n_segments + 1:
         errors.append(f"shots end at segment {expected - 1}, but there are {n_segments} segments")
-    char_ids = {c.id for c in plan.style_guide.characters}
+    from app.services.generation.icons import icons
+
+    known_icons = icons()
+    for e in plan.style_guide.entities:
+        if e.icon not in known_icons:
+            errors.append(f"entity {e.id}: icon '{e.icon}' is not in the icon library")
+    ent_ids = {e.id for e in plan.style_guide.entities}
+    used_modes = {s.theme for s in plan.shots if s.visual_type == "code_animation"}
+    if modes is not None:
+        bad = used_modes - set(modes)
+        if bad:
+            errors.append(f"modes {sorted(bad)} are not enabled (use only: {', '.join(modes)})")
+    if len(used_modes) > max_modes:
+        errors.append(
+            f"{len(used_modes)} explanation modes used ({', '.join(sorted(used_modes))}); "
+            f"use at most {max_modes} so the video feels like one piece"
+        )
     for i, s in enumerate(plan.shots, 1):
+        unknown_e = set(s.entities) - ent_ids
+        if unknown_e:
+            errors.append(f"shot {i}: entities {sorted(unknown_e)} not defined in style_guide.entities")
+    char_ids = {c.id for c in plan.style_guide.characters}
+    by_key = {k.lower(): e.id for e in plan.style_guide.entities for k in (e.id, e.label)}
+    for i, s in enumerate(plan.shots, 1):
+        if s.theme != "story":
+            # people are vocabulary entities outside the legacy cartoon mode: map, don't fail
+            s.entities = list(
+                dict.fromkeys(s.entities + [by_key[c.lower()] for c in s.characters if c.lower() in by_key])
+            )
+            s.characters = [c for c in s.characters if c in char_ids]
+            continue
         unknown = set(s.characters) - char_ids
         if unknown:
             errors.append(f"shot {i}: characters {sorted(unknown)} not defined in style_guide.characters")
@@ -217,12 +261,14 @@ def _plan(db: Session, p: Project) -> None:
     plan: Plan | None = None
     last_err = ""
     for attempt in range(2):  # one retry with the validation errors (spec)
-        text, res = llm.chat(cfg.planner.model, messages, system=P.SYSTEM, fallbacks=cfg.planner.fallbacks,
+        text, res = llm.chat(cfg.planner.model, messages, system=P.system_prompt(), fallbacks=cfg.planner.fallbacks,
                              max_tokens=16000, temperature=0.5)  # fmt: skip
         total_cost += res.cost_usd
         used = res.alias
         try:
-            plan = validate_plan(extract_json(text), len(segments), allowed, has_facecam)
+            anim = profile.animation_style or {}
+            plan = validate_plan(extract_json(text), len(segments), allowed, has_facecam,
+                                 modes=anim.get("enabled_modes"), max_modes=int(anim.get("max_modes_per_video", 3)))  # fmt: skip
             break
         except (ValueError, ValidationError, PlanError) as e:
             last_err = str(e)[:4000]
@@ -245,7 +291,8 @@ def _plan(db: Session, p: Project) -> None:
         ))  # fmt: skip
     version = int((p.style_guide or {}).get("version", 0)) + 1
     p.style_guide = {"version": version, **plan.style_guide.model_dump(),
-                     "shot_characters": {str(i): s["characters"] for i, s in enumerate(shots)}}  # fmt: skip
+                     "shot_characters": {str(i): s["characters"] for i, s in enumerate(shots)},
+                     "shot_entities": {str(i): s.get("entities", []) for i, s in enumerate(shots)}}  # fmt: skip
     p.plan_meta = {"model": used, "cost_usd": round(total_cost, 4), "segments": len(segments),
                    "attempts": attempt + 1}  # fmt: skip
     p.status, p.error = ProjectStatus.planned, None

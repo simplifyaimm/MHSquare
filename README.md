@@ -52,6 +52,7 @@ the gitleaks binary or Docker.
 - [x] Draft narration (TTS) + 720p preview render
 - [x] v2.1 Style Profile — brand kit (versioned), content-type presets, script judge, topic registry, brand animation style + style lint + layout probe, footer/watermark/face-cam circle, HTML export, reply helper
 - [x] Explanation modes (tech · flow · lecture · sketch · story) + "try this chunk as…", script library dropdown, final 1080p/4K/vertical MP4
+- [x] Consistency system (vocabulary, icon library, mode cap, scenario mode), vision QA, face cam always on, cover photos (YouTube + Shorts/Reels)
 - [ ] v2 (Script Studio, Shorts Studio, Publish Kit, Descript round-trip) — waiting for `mhsquare-update-v2.md`
 - [ ] Phase 7 — Assembly and export
 - [ ] Phase 8 — Mobile and polish

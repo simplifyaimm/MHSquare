@@ -13,6 +13,7 @@ celery_app.conf.update(
     result_serializer="json",
     accept_content=["json"],
     timezone="UTC",
-    task_routes={"ingest.transcribe": {"queue": "transcribe"}},
+    # ML worker (transcriber container): WhisperX + background removal
+    task_routes={"ingest.transcribe": {"queue": "transcribe"}, "media.cutout": {"queue": "transcribe"}},
     broker_transport_options={"visibility_timeout": 60 * 60 * 4},  # long transcriptions
 )

@@ -1,6 +1,6 @@
 /* mode "flow" — protocol / request-flow / sequence diagrams (ref: auth-concepts sample).
    Near-black canvas, blue-accent node icons, numbered step circles on dashed arrows, lifelines. */
-.fl-bg{position:absolute;inset:0;background:radial-gradient(ellipse 80% 70% at 50% 40%,#0a1626,#060b14 70%)}
+.fl-bg{position:absolute;inset:0;background:linear-gradient(var(--grid-color) 1px,transparent 1px) 0 0/var(--grid) var(--grid),linear-gradient(90deg,var(--grid-color) 1px,transparent 1px) 0 0/var(--grid) var(--grid),linear-gradient(180deg,var(--bg-from),var(--bg-to))}
 .fl-actor{position:absolute;display:flex;flex-direction:column;align-items:center;gap:12px;transform:translateX(-50%)}
 .fl-actor .ic{width:84px;height:84px;border-radius:18px;display:flex;align-items:center;justify-content:center;
   background:color-mix(in srgb,var(--accent) 16%,#0a1626);border:2px solid var(--accent);box-shadow:0 0 28px color-mix(in srgb,var(--accent) 30%,transparent)}

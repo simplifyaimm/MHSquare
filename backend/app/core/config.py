@@ -40,6 +40,8 @@ class Settings(BaseSettings):
     whisper_model: str = "small"
     whisper_device: str = "cpu"
     whisper_compute_type: str = "int8"
+    # rembg model for creator headshots. birefnet-portrait is sharper but needs >6 GB RAM on CPU.
+    cutout_model: str = "isnet-general-use"
 
     media_url_ttl_s: int = 60 * 60 * 6
 

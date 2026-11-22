@@ -153,7 +153,7 @@ def list_shots(project_id: uuid.UUID, db: Session = Depends(get_db)):
 
 class ShotPatch(BaseModel):
     visual_type: VisualTypeT | None = None
-    theme: Literal["tech", "flow", "lecture", "sketch", "story"] | None = None
+    theme: Literal["tech", "flow", "lecture", "sketch", "scenario", "story"] | None = None
     prompt: str | None = Field(None, min_length=1, max_length=8000)
     notes: str | None = Field(None, max_length=4000)
     start_ms: int | None = Field(None, ge=0)

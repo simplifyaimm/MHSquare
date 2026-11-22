@@ -61,3 +61,20 @@ pipeline.register_dispatch("start", lambda pid: ingest_start.delay(pid))
 pipeline.register_dispatch("transcribe", lambda pid, stage: ingest_transcribe.delay(pid, stage))
 pipeline.register_dispatch("apply_cuts", lambda pid: ingest_apply_cuts.delay(pid))
 planner.register_dispatch("plan", lambda pid: plan_run.delay(pid))
+
+
+# ---------------------------------------------------------------- covers
+@celery_app.task(name="media.cutout", acks_late=False)  # ML worker; no redelivery loop if it OOMs
+def media_cutout(brand_asset_id: str) -> None:
+    from app.services import covers
+
+    covers.cutout(brand_asset_id)
+
+
+@celery_app.task(name="covers.generate")
+def covers_generate(
+    project_id: str, formats: list[str], headshot_id: str | None, n: int, note: str = ""
+) -> None:
+    from app.services import covers
+
+    covers.generate(project_id, formats, headshot_id, n, note)

@@ -118,7 +118,39 @@ window.__mhDuration = window.__mhTimeline.duration();
 </script></body></html>"""
 
 
+def render_still(req: dict) -> dict:
+    """One PNG of the final state (cover photos / thumbnails) — same sandbox, no video encode."""
+    job = req["job_id"]
+    w, h = int(req["width"]), int(req["height"])
+    scale = float(req.get("scale", 1))
+    out = OUT / f"{job}.png"
+    logs: list[str] = []
+    try:
+        with sync_playwright() as pw:
+            browser = pw.chromium.launch(args=["--disable-dev-shm-usage", "--disable-gpu", "--font-render-hinting=none"],
+                                         chromium_sandbox=False)  # fmt: skip
+            ctx = browser.new_context(viewport={"width": w, "height": h}, device_scale_factor=scale, offline=True)
+            ctx.route("**/*", lambda r: r.abort())
+            page = ctx.new_page()
+            page.on("pageerror", lambda e: logs.append(f"pageerror: {e}"[:500]))
+            page.set_content(build_page(req), wait_until="load", timeout=30_000)
+            page.evaluate("document.fonts.ready")
+            errors = page.evaluate("window.__mhErrors")
+            if errors:
+                raise RuntimeError("; ".join(errors)[:2000])
+            page.evaluate("(t) => window.__mhSeek(t)", int(req["duration_ms"]) / 1000)
+            cdp = ctx.new_cdp_session(page)
+            out.write_bytes(base64.b64decode(cdp.send("Page.captureScreenshot", {"format": "png"})["data"]))
+            browser.close()
+        return {"ok": True, "png": out.name, "logs": logs[-20:]}
+    except Exception as e:  # noqa: BLE001
+        out.unlink(missing_ok=True)
+        return {"ok": False, "error": f"{type(e).__name__}: {e}"[:3000], "logs": logs[-20:]}
+
+
 def render(req: dict) -> dict:
+    if req.get("still"):
+        return render_still(req)
     job = req["job_id"]
     w, h, fps = int(req["width"]), int(req["height"]), int(req["fps"])
     scale = float(req.get("scale", 1))
@@ -128,6 +160,7 @@ def render(req: dict) -> dict:
     logs: list[str] = []
     started = time.monotonic()
     layout_warnings: list[str] = []
+    qa_names: list[str] = []
 
     ff = subprocess.Popen(  # noqa: S603
         ["ffmpeg", "-nostdin", "-v", "error", "-y", "-f", "image2pipe", "-framerate", str(fps), "-c:v", "png",
@@ -167,6 +200,8 @@ def render(req: dict) -> dict:
                 page.set_content(build_page(req), wait_until="load", timeout=30_000)
                 page.evaluate("document.fonts.ready")
             mid = frames // 2
+            qa_at = {min(frames - 1, max(0, round(float(t) * fps))): k for k, t in enumerate(req.get("qa_frames") or [])}
+            qa_clip = {"x": 0, "y": 0, "width": w, "height": h, "scale": min(1.0, 960 / w)}
             for i in range(frames):
                 if time.monotonic() - started > RENDER_TIMEOUT_S:
                     raise TimeoutError(f"render exceeded {RENDER_TIMEOUT_S}s at frame {i}/{frames}")
@@ -176,6 +211,11 @@ def render(req: dict) -> dict:
                 ff.stdin.write(png)
                 if i == mid:
                     thumb.write_bytes(base64.b64decode(cdp.send("Page.captureScreenshot", {"format": "jpeg", "quality": 85})["data"]))
+                if i in qa_at:  # downscaled frames for the vision-QA review
+                    shot = cdp.send("Page.captureScreenshot", {"format": "jpeg", "quality": 82, "clip": qa_clip})
+                    name = f"{job}_qa{qa_at[i]}.jpg"
+                    (OUT / name).write_bytes(base64.b64decode(shot["data"]))
+                    qa_names.append(name)
             late = page.evaluate("window.__mhErrors")
             browser.close()
         ff.stdin.close()
@@ -184,7 +224,7 @@ def render(req: dict) -> dict:
         if late:
             logs.append("runtime errors: " + "; ".join(late)[:1000])
         return {
-            "ok": True, "path": out.name, "thumb": thumb.name, "frames": frames, "timeline_s": tl_dur,
+            "ok": True, "path": out.name, "thumb": thumb.name, "qa_frames": qa_names, "frames": frames, "timeline_s": tl_dur,
             "render_s": round(time.monotonic() - started, 1), "logs": logs[-50:], "layout_warnings": layout_warnings,
         }  # fmt: skip
     except Exception as e:  # noqa: BLE001
