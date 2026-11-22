@@ -13,6 +13,7 @@ from app.services.style import defaults as D
 FIELDS = ["language", "brand", "voice_rules", "judge_rubric", "audience_default", "presets", "animation_style",
           "layout", "caption_formula", "reply_framework"]  # fmt: skip
 THEMES_DIR = Path(__file__).resolve().parent.parent / "generation" / "themes"
+EXPLAIN_MODES = ["tech", "flow", "lecture", "sketch", "story"]
 
 
 def as_dict(p: StyleProfile) -> dict:
@@ -31,6 +32,22 @@ def ensure_seeded(db: Session) -> None:
         for title, pillar, ctype, status in D.SEED_TOPICS:
             db.add(CoveredTopic(title=title, pillar=pillar, content_type=ctype, status=status))
     db.commit()
+    _upgrade_explain_modes(db)
+
+
+def _upgrade_explain_modes(db: Session) -> None:
+    """Existing installs: add the explanation modes (from the new reference samples) as a NEW profile version,
+    keeping every user edit."""
+    cur = db.scalar(select(StyleProfile).where(StyleProfile.is_active.is_(True)))
+    if cur is None or "explain_modes" in (cur.animation_style or {}):
+        return
+    a = dict(cur.animation_style or {})
+    a["explain_modes"] = D.EXPLAIN_MODES
+    a["allowed_fonts"] = sorted(set(a.get("allowed_fonts", [])) | {"Caveat"})
+    a["fonts"] = {**a.get("fonts", {}), "handwriting": "Caveat"}
+    save_version(
+        db, {"animation_style": a}, "Added explanation modes: tech · flow · lecture · sketch · story"
+    )
 
 
 def active(db: Session) -> StyleProfile:
@@ -132,12 +149,11 @@ def theme_css(profile: StyleProfile, project: Project, theme: str, cv: Canvas) -
         f"--safe-top:{80 if cv.is_short else 90}px}}\n"
     )
     name = "story" if theme == "story" else "brand"
-    return (
-        head
-        + (THEMES_DIR / f"{name}.css").read_text("utf-8")
-        + "\n"
-        + (THEMES_DIR / "footer.css").read_text("utf-8")
-    )
+    css = (THEMES_DIR / f"{name}.css").read_text("utf-8")
+    mode = THEMES_DIR / "modes" / f"{theme}.css"  # flow / lecture / sketch build on the brand kit
+    if theme in EXPLAIN_MODES and mode.exists():
+        css += "\n" + mode.read_text("utf-8")
+    return head + css + "\n" + (THEMES_DIR / "footer.css").read_text("utf-8")
 
 
 def footer_html(profile: StyleProfile, cv: Canvas) -> str:
@@ -169,6 +185,11 @@ def planner_brief(profile: StyleProfile, project: Project, has_facecam: bool) ->
         f" · topic kind: {project.topic_kind or '—'}",
         f"Preset rules: {ps.get('rules', '')}",
         "Visual rules: " + " ".join((profile.animation_style or {}).get("rules", [])),
+        "EXPLANATION MODES (shot `theme`; choose the best one for EACH chunk, vary them across the video, keep one mode"
+        " through a continuous depends_on_previous chain):\n"
+        + "\n".join(
+            f"  - {k}: {v}" for k, v in ((profile.animation_style or {}).get("explain_modes") or {}).items()
+        ),
     ]
     if cv.is_short:
         lines.append(f"SHORTS layout: animation canvas {cv.label} fills the frame; no face during animation segments."
@@ -205,7 +226,7 @@ def animation_rules(profile: StyleProfile, project: Project, theme: str, cv: Can
         f"- Keep these zones completely EMPTY (checked automatically): {zones}.",
         ("- A brand footer is added automatically along the bottom edge: keep the bottom 80 px free and never draw"
          " your own footer, handle or watermark." if cv.footer else "- No footer on this shot."),  # fmt: skip
-        "- Theme: " + ("story (flat cartoon kit)." if theme == "story" else "brand (blueprint navy kit)."),
+        f"- Explanation mode: {theme}" + (" (flat cartoon kit)." if theme == "story" else " (built on the brand kit)."),
     ])  # fmt: skip
 
 

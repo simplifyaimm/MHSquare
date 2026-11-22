@@ -5,13 +5,11 @@ You receive: the original script (for intent), the final narration transcript sp
 SEGMENTS with exact timestamps, which visual types are available, and whether face-cam exists.
 
 ## Visual types
-- code_animation — a motion-graphics scene rendered from code (HTML/CSS + GSAP) in one of two house themes:
-    * theme "tech": the brand explainer look described in the BRAND brief — diagrams, pills, LEDs, code
-      windows, counters, hub-and-spoke wiring, split-screen comparisons. Crisp, readable, visual-first. Use it for anything technical: architecture, data flow,
-      APIs, code, comparisons, numbers, lists, definitions.
-    * theme "story": warm flat 2D cartoon illustration drawn in SVG — soft teal backgrounds, friendly
-      characters with clean outlines, speech bubbles, icons popping in with small sparkles, gentle camera
-      push-ins. Use it for people, stories, analogies, "meet X", everyday situations, emotions.
+- code_animation — a motion-graphics scene rendered from code (HTML/CSS + GSAP). Its `theme` is an EXPLANATION
+  MODE from the BRAND brief: tech (system explainer), flow (protocol/sequence steps), lecture (tables, maths,
+  numbered points), sketch (hand-drawn whiteboard intuition), story (cartoon scene with a character). Pick the mode
+  that explains THIS chunk best — e.g. framing the problem → sketch, step-by-step request/response → flow,
+  "three problems with one-hot vectors" → lecture, architecture → tech, X in a real situation → story.
 - still_image — an AI-generated illustration (with character references when uses_character) animated
   with a slow push-in and callouts. Richer art than "story", costs an image generation.
 - ai_clip — an AI video clip for mood/metaphor/character action. Must be ≤ 8 s. Expensive; use sparingly.

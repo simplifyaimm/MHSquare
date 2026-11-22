@@ -201,7 +201,8 @@ def embedded_fonts() -> str:
     global _FONT_CSS
     if _FONT_CSS is None:
         rules = []
-        files = [("Oswald", "200 700", "/usr/share/fonts/brand/Oswald.ttf")] + [
+        files = [("Oswald", "200 700", "/usr/share/fonts/brand/Oswald.ttf"),
+                 ("Caveat", "400 700", "/usr/share/fonts/brand/Caveat.ttf")] + [
             ("Poppins", wt, f"/usr/share/fonts/brand/Poppins-{n}.ttf")
             for n, wt in (("Regular", "400"), ("Medium", "500"), ("SemiBold", "600"), ("Bold", "700"))
         ]

@@ -13,7 +13,7 @@ from app.services.storage import get_storage
 from app.workers.celery_app import celery_app
 from tests.conftest import TMPDIR
 
-SCRIPT = b"# Kafka in 5 minutes\n\nKafka is a distributed log.\n"
+SCRIPT_MD = SCRIPT = b"# Kafka in 5 minutes\n\nKafka is a distributed log.\n"
 
 
 def _ffmpeg(*args: str) -> None:

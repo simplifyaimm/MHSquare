@@ -1,0 +1,27 @@
+/* mode "flow" — protocol / request-flow / sequence diagrams (ref: auth-concepts sample).
+   Near-black canvas, blue-accent node icons, numbered step circles on dashed arrows, lifelines. */
+.fl-bg{position:absolute;inset:0;background:radial-gradient(ellipse 80% 70% at 50% 40%,#0a1626,#060b14 70%)}
+.fl-actor{position:absolute;display:flex;flex-direction:column;align-items:center;gap:12px;transform:translateX(-50%)}
+.fl-actor .ic{width:84px;height:84px;border-radius:18px;display:flex;align-items:center;justify-content:center;
+  background:color-mix(in srgb,var(--accent) 16%,#0a1626);border:2px solid var(--accent);box-shadow:0 0 28px color-mix(in srgb,var(--accent) 30%,transparent)}
+.fl-actor .ic svg{width:48px;height:48px;stroke:var(--accent);fill:none;stroke-width:2.2}
+.fl-actor b{font:600 24px/1 var(--f-body);color:#ffffff}
+.fl-actor small{font:500 15px/1 var(--f-mono);color:#8a9ab3;letter-spacing:.08em}
+.fl-lifeline{position:absolute;width:2px;background:linear-gradient(#5b6b85 50%,transparent 0) 0 0/2px 12px}
+.fl-step{position:absolute;width:38px;height:38px;border-radius:50%;display:flex;align-items:center;justify-content:center;
+  background:var(--accent);color:#060b14;font:700 19px/1 var(--f-mono);transform:translate(-50%,-50%);
+  box-shadow:0 0 18px color-mix(in srgb,var(--accent) 60%,transparent)}
+.fl-step.good{background:var(--good)}.fl-step.bad{background:var(--growth)}
+.fl-label{position:absolute;font:500 20px/1.25 var(--f-mono);color:#e8eef7;white-space:nowrap;transform:translateX(-50%)}
+.fl-label small{display:block;font:400 15px/1.3 var(--f-mono);color:#8a9ab3}
+svg.mh-wires .dash{stroke-dasharray:9 8;stroke:#c5d0e0;stroke-width:2}
+svg.mh-wires .dash.hot{stroke:var(--accent)}
+svg.mh-wires .arrow-head{fill:#c5d0e0;stroke:none}
+.fl-question{position:absolute;font:600 34px/1.2 var(--f-body);color:var(--accent);transform:translateX(-50%);
+  text-decoration:underline;text-decoration-thickness:3px;text-underline-offset:10px}
+.fl-cards{position:absolute;display:flex;gap:28px;transform:translateX(-50%)}
+.fl-card{width:230px;height:150px;border-radius:14px;background:#e8eef7;display:flex;flex-direction:column;align-items:center;
+  justify-content:center;gap:14px;font:700 22px/1 var(--f-body);color:#060b14;text-transform:uppercase;letter-spacing:.04em}
+.fl-card svg{width:52px;height:52px;stroke:var(--accent);fill:none;stroke-width:2.4}
+.fl-token{position:absolute;padding:8px 14px;border-radius:8px;border:1.5px solid var(--accent);background:#0a1626;
+  font:500 17px/1 var(--f-mono);color:#e8eef7;white-space:nowrap}

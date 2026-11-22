@@ -23,16 +23,19 @@ import {
   BUSY_STATES,
   TYPE_COLOR,
   TYPE_LABEL,
+  MODES,
   useAccept,
   useGenerate,
   useMerge,
   usePatchShot,
   usePreview,
   useRegenerate,
+  useRenderFinal,
   useShots,
   useSplit,
   type Shot,
   type ShotsResponse,
+  type ExplainMode,
   type VisualType,
 } from "@/lib/shots";
 import { cn } from "@/lib/utils";
@@ -397,6 +400,7 @@ function ShotReview({
                   )}
                   <span className="absolute bottom-0 left-0 bg-black/60 px-1 font-mono text-[10px]">
                     #{t.attempt}
+                    {t.meta.theme ? ` ${String(t.meta.theme)}` : ""}
                     {t.id === shot.accepted_take_id ? " ✓" : ""}
                   </span>
                 </button>
@@ -443,9 +447,50 @@ function ShotReview({
         ) : take?.meta.lint === "pass" ? (
           <p className="text-xs text-success">Style lint passed · layout OK</p>
         ) : null}
+        {shot.visual_type === "code_animation" && !busy && <TryAnotherStyle pid={pid} shot={shot} />}
         {editing && <ShotEditor pid={pid} shot={shot} next={next} onDone={() => setEditing(false)} />}
       </CardContent>
     </Card>
+  );
+}
+
+/** Re-explain this chunk in a different mode; every attempt stays as a take so you can keep the best. */
+function TryAnotherStyle({ pid, shot }: { pid: string; shot: Shot }) {
+  const patch = usePatchShot(pid);
+  const regen = useRegenerate(pid);
+  const others = MODES.filter((m) => m.id !== shot.theme);
+  const [mode, setMode] = useState<ExplainMode>(others[0].id);
+  const tried = new Set(shot.takes.map((t) => String(t.meta.theme ?? "")));
+  return (
+    <div className="flex flex-wrap items-center gap-2 rounded-lg border border-dashed border-border p-2.5 text-sm">
+      <span className="text-muted">Try this chunk as</span>
+      <select
+        value={mode}
+        onChange={(e) => setMode(e.target.value as ExplainMode)}
+        className="h-9 rounded-lg border border-border bg-surface-2 px-2 text-sm"
+        aria-label="Try another explanation mode"
+      >
+        {others.map((m) => (
+          <option key={m.id} value={m.id}>
+            {m.label}
+            {tried.has(m.id) ? " ✓ tried" : ""} — {m.hint}
+          </option>
+        ))}
+      </select>
+      <Button
+        size="sm"
+        variant="secondary"
+        disabled={patch.isPending || regen.isPending}
+        onClick={() =>
+          patch.mutate({ id: shot.id, theme: mode }, { onSuccess: () => regen.mutate({ id: shot.id }) })
+        }
+      >
+        <Sparkles size={14} /> Generate
+      </Button>
+      {(patch.error || regen.error) && (
+        <span className="text-danger">{(patch.error ?? regen.error)?.message}</span>
+      )}
+    </div>
   );
 }
 
@@ -484,11 +529,15 @@ function ShotEditor({
         </select>
         <select
           value={theme}
-          onChange={(e) => setTheme(e.target.value as "tech" | "story")}
+          onChange={(e) => setTheme(e.target.value as ExplainMode)}
           className="h-10 rounded-lg border border-border bg-surface-2 px-2 text-sm"
+          aria-label="Explanation mode"
         >
-          <option value="tech">tech theme</option>
-          <option value="story">story theme</option>
+          {MODES.map((m) => (
+            <option key={m.id} value={m.id}>
+              {m.label} — {m.hint}
+            </option>
+          ))}
         </select>
       </div>
       <textarea
@@ -560,7 +609,42 @@ function PreviewCard({ pid, data }: { pid: string; data: ShotsResponse }) {
           </p>
         )}
         {st === "failed" && <p className="mt-2 text-sm text-danger">{data.plan_meta.preview?.error}</p>}
+        <FinalRender pid={pid} data={data} ready={ready} />
       </CardContent>
     </Card>
+  );
+}
+
+function FinalRender({ pid, data, ready }: { pid: string; data: ShotsResponse; ready: number }) {
+  const render = useRenderFinal(pid);
+  const st = data.plan_meta.final?.status;
+  const m = data.final?.meta ?? {};
+  return (
+    <div className="mt-4 flex flex-wrap items-center gap-3 border-t border-border pt-4">
+      <div className="min-w-0 flex-1">
+        <div className="text-sm font-medium">Final MP4</div>
+        <div className="text-xs text-muted">
+          Full quality (H.264 CRF 18 · AAC 320 kbps) with face-cam circle and watermark rules. FCPXML + SRT
+          come with phase 7.
+        </div>
+      </div>
+      <Button onClick={() => render.mutate()} disabled={!ready || st === "running" || render.isPending}>
+        {st === "running" ? <Loader2 size={16} className="animate-spin" /> : <Film size={16} />}
+        {st === "running"
+          ? "Rendering… (a few minutes)"
+          : data.final
+            ? "Re-render final"
+            : "Render final MP4"}
+      </Button>
+      {data.final && st !== "running" && (
+        <a href={`${data.final.url}&dl=${encodeURIComponent("mhsquare-final.mp4")}`}>
+          <Button variant="success" type="button">
+            <Download size={16} /> Download ({String(m.width)}×{String(m.height)},{" "}
+            {(data.final.size / 1024 ** 2).toFixed(1)} MB)
+          </Button>
+        </a>
+      )}
+      {st === "failed" && <p className="w-full text-sm text-danger">{data.plan_meta.final?.error}</p>}
+    </div>
   );
 }

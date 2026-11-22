@@ -2,6 +2,7 @@ import { useState } from "react";
 import { Link, Navigate, useNavigate, useParams } from "react-router-dom";
 import { ArrowLeft, ArrowRight, AudioLines, Check, Loader2, Play } from "lucide-react";
 import { ScriptCheckPanel } from "@/components/ScriptCheckPanel";
+import { ScriptLibraryPicker } from "@/components/ScriptLibraryPicker";
 import { UploadSlot } from "@/components/UploadSlot";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -70,6 +71,7 @@ export function ProjectSetupPage() {
                 hint="The script you recorded from. Used for intent when planning shots."
                 assets={p.assets.filter((a) => a.kind === "script")}
               />
+              <ScriptLibraryPicker projectId={p.id} />
               <ScriptCheckPanel p={p} />
             </>
           )}

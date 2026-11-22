@@ -133,6 +133,7 @@ def list_shots(project_id: uuid.UUID, db: Session = Depends(get_db)):
     cfg = routing.load()
     shots = [_shot_out(s, cfg) for s in _shots(db, p.id)]
     preview = latest_asset(db, p.id, "preview")
+    final = latest_asset(db, p.id, "final_render")
     return {
         "status": p.status,
         "error": p.error,
@@ -143,13 +144,16 @@ def list_shots(project_id: uuid.UUID, db: Session = Depends(get_db)):
         "estimate_usd": round(sum(s.estimate_usd for s in shots if s.state not in (ShotState.accepted,)), 2),
         "spent_usd": round(sum(t.cost_usd for s in shots for t in s.takes), 4),
         "preview": {"url": signed_media_url(preview.id), "meta": preview.meta} if preview else None,
+        "final": {"url": signed_media_url(final.id), "meta": final.meta, "size": final.size}
+        if final
+        else None,
         "allowed_visual_types": cfg.planner.allowed_visual_types,
     }
 
 
 class ShotPatch(BaseModel):
     visual_type: VisualTypeT | None = None
-    theme: Literal["tech", "story"] | None = None
+    theme: Literal["tech", "flow", "lecture", "sketch", "story"] | None = None
     prompt: str | None = Field(None, min_length=1, max_length=8000)
     notes: str | None = Field(None, max_length=4000)
     start_ms: int | None = Field(None, ge=0)
@@ -384,3 +388,13 @@ def take_html(take_id: uuid.UUID, db: Session = Depends(get_db)):
     return HTMLResponse(html, headers={"Content-Disposition": f'attachment; filename="shot-take-{t.attempt}.html"',
                                        "Content-Security-Policy": "default-src \'none\'; style-src \'unsafe-inline\'; "
                                        "script-src \'unsafe-inline\'; img-src data:; font-src data:"})  # fmt: skip
+
+
+@router.post("/projects/{project_id}/render-final", status_code=status.HTTP_202_ACCEPTED)
+def render_final(project_id: uuid.UUID, db: Session = Depends(get_db)):
+    """Full-quality MP4 (1080p / 4K / 1080×1920): H.264 CRF 18 slow + AAC 320k. FCPXML/SRT come in phase 7."""
+    p = _project(db, project_id)
+    p.plan_meta = {**(p.plan_meta or {}), "final": {"status": "running"}}
+    db.commit()
+    tasks.preview_build.delay(str(p.id), "final")
+    return {"status": "running"}

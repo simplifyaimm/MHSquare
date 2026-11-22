@@ -3,6 +3,7 @@ import uuid
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Request, UploadFile, status
+from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -373,3 +374,54 @@ def stats(db: Session = Depends(get_db)):
     reach, authority = kinds.count("reach"), kinds.count("authority")
     return {"reach": reach, "authority": authority, "untagged": kinds.count(None), "target": "2:1",
             "on_target": authority == 0 and reach == 0 or (authority > 0 and reach / authority >= 2)}  # fmt: skip
+
+
+# ---------------------------------------------------------------- script library (reuse a script from another project)
+
+
+@router.get("/scripts")
+def list_scripts(db: Session = Depends(get_db)):
+    """Every script already in mhsquare (newest first, de-duplicated by content)."""
+    rows = db.execute(
+        select(Asset, Project.name).join(Project, Project.id == Asset.project_id)
+        .where(Asset.kind == AssetKind.script).order_by(Asset.created_at.desc())
+    ).all()  # fmt: skip
+    seen, out = set(), []
+    storage = get_storage()
+    for a, pname in rows:
+        if a.sha256 in seen or not storage.exists(a.storage_key):
+            continue
+        seen.add(a.sha256)
+        text = storage.path(a.storage_key).read_text("utf-8-sig", errors="replace")
+        title = next(
+            (ln.lstrip("# ").strip() for ln in text.splitlines() if ln.strip()), a.original_name or "script"
+        )
+        out.append({"asset_id": str(a.id), "title": title[:120], "project": pname, "project_id": str(a.project_id),
+                    "words": (a.meta or {}).get("words"), "original_name": a.original_name,
+                    "created_at": a.created_at})  # fmt: skip
+    return out
+
+
+class FromAsset(BaseModel):
+    asset_id: uuid.UUID
+
+
+@router.post(
+    "/projects/{project_id}/script/from-library", response_model=AssetOut, status_code=status.HTTP_201_CREATED
+)
+def script_from_library(project_id: uuid.UUID, body: FromAsset, db: Session = Depends(get_db)):
+    p = _get_project(db, project_id)
+    _require_editable(p)
+    src = db.get(Asset, body.asset_id)
+    if src is None or src.kind != AssetKind.script:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Script not found")
+    storage = get_storage()
+    tmp = uploads.tmp_path(uuid.uuid4())
+    tmp.write_bytes(storage.path(src.storage_key).read_bytes())
+    try:
+        asset = uploads.finalize(db, p, AssetKind.script, tmp, src.original_name or "script.md")
+    finally:
+        tmp.unlink(missing_ok=True)
+    asset.meta = {**(asset.meta or {}), "copied_from_project": str(src.project_id)}
+    db.commit()
+    return _asset_out(asset)

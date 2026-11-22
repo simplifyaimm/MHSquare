@@ -54,7 +54,7 @@ class PlannedShot(BaseModel):
     from_segment: int = Field(ge=1)
     to_segment: int = Field(ge=1)
     visual_type: Literal["code_animation", "ai_clip", "still_image", "text_card", "a_roll"]
-    theme: Literal["tech", "story"] = "tech"
+    theme: Literal["tech", "flow", "lecture", "sketch", "story"] = "tech"
     prompt: str = Field(min_length=10)
     depends_on_previous: bool = False
     uses_character: bool = False

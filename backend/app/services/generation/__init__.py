@@ -185,7 +185,7 @@ def write_and_render(db: Session, p: Project, shot: Shot, take: Take, model: str
     previous = None
     if shot.depends_on_previous and shot.index > 0:
         prev = db.scalar(select(Shot).where(Shot.project_id == p.id, Shot.index == shot.index - 1))
-        ptake = _best_take(db, prev) if prev else None
+        ptake = _best_take(db, prev) if prev and prev.theme == shot.theme else None  # only continue within a mode
         previous = ptake.code if ptake else None
     user = GP.scene_user(
         prompt=brief, duration_ms=shot.duration_ms, words=shot_words(db, shot), style_guide=p.style_guide or {},
@@ -201,7 +201,7 @@ def write_and_render(db: Session, p: Project, shot: Shot, take: Take, model: str
         + style.animation_rules(profile, p, shot.theme, cv)
     )
     take.prompt_used = user
-    take.meta = {**(take.meta or {}), "style_profile_version": profile.version, "canvas": cv.label}
+    take.meta = {**(take.meta or {}), "style_profile_version": profile.version, "canvas": cv.label, "theme": shot.theme}
     logs: list[str] = []
     for attempt in range(2):
         text, res = llm.chat(

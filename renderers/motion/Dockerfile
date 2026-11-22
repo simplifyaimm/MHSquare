@@ -17,6 +17,7 @@ RUN pip install playwright==1.65.2 \
 # Consolas is proprietary — the code font stack falls back to JetBrains Mono.
 RUN mkdir -p /usr/share/fonts/brand && cd /usr/share/fonts/brand \
  && curl -fsSL -o Oswald.ttf "https://github.com/google/fonts/raw/main/ofl/oswald/Oswald%5Bwght%5D.ttf" \
+ && curl -fsSL -o Caveat.ttf "https://github.com/google/fonts/raw/main/ofl/caveat/Caveat%5Bwght%5D.ttf" \
  && for w in Regular Medium SemiBold Bold; do \
       curl -fsSL -o "Poppins-$w.ttf" "https://github.com/google/fonts/raw/main/ofl/poppins/Poppins-$w.ttf"; \
     done \

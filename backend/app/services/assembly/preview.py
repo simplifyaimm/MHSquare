@@ -33,7 +33,15 @@ def _escape_drawtext(s: str) -> str:
     return s.replace("\\", "\\\\").replace(":", "\\:").replace("'", "’").replace("%", "\\%")
 
 
-def build_preview(project_id: str) -> None:
+QUALITY = {
+    # key: (meta key, asset kind, crf, preset, audio bitrate)
+    "proxy": ("preview", "preview", "24", "veryfast", "160k"),
+    "final": ("final", "final_render", "18", "slow", "320k"),
+}
+
+
+def build_preview(project_id: str, quality: str = "proxy") -> None:
+    meta_key, kind, crf, preset, abr = QUALITY[quality]
     pid = uuid.UUID(project_id)
     with get_sessionmaker()() as db:
         p = db.get(Project, pid)
@@ -43,7 +51,12 @@ def build_preview(project_id: str) -> None:
         try:
             profile = style.active(db)
             cv = style.canvas(profile, p)
-            W, H = (540, 960) if cv.is_short else (1280, 720)  # noqa: N806
+            if quality == "proxy":
+                W, H = (540, 960) if cv.is_short else (1280, 720)  # noqa: N806
+            elif cv.is_short:
+                W, H = cv.export_w, cv.export_h  # noqa: N806
+            else:
+                W, H = (3840, 2160) if p.resolution == "3840x2160" else (1920, 1080)  # noqa: N806
             bg = ((profile.animation_style or {}).get("background") or {}).get("to", "#060b14").lstrip("#")
             shots = list(db.scalars(select(Shot).where(Shot.project_id == pid).order_by(Shot.index)))
             audio = latest_asset(db, pid, AssetKind.audio_final)
@@ -64,7 +77,7 @@ def build_preview(project_id: str) -> None:
                     dur = n / fps
                     seg = work / f"s{s.index:04d}.mp4"
                     take = _best_take(db, s)
-                    common = ["-frames:v", str(n), "-an", "-c:v", "libx264", "-preset", "veryfast", "-crf", "24",
+                    common = ["-frames:v", str(n), "-an", "-c:v", "libx264", "-preset", preset, "-crf", crf,
                               "-pix_fmt", "yuv420p", "-r", str(fps), str(seg)]  # fmt: skip
                     if take and take.storage_key and storage.exists(take.storage_key):
                         _ffmpeg("-i", str(storage.path(take.storage_key)), "-vf",
@@ -82,25 +95,25 @@ def build_preview(project_id: str) -> None:
                 (work / "list.txt").write_text("\n".join(listing))
                 video = work / "video.mp4"
                 _ffmpeg("-f", "concat", "-safe", "0", "-i", str(work / "list.txt"), "-c", "copy", str(video))
-                video = _overlays(p, profile, cv, video, work, W, H, wm_windows)
-                out = work / "preview.mp4"
+                video = _overlays(p, profile, cv, video, work, W, H, wm_windows, crf, preset)
+                out = work / f"{kind}.mp4"
                 _ffmpeg("-i", str(video), "-i", str(storage.path(audio.storage_key)), "-map", "0:v", "-map", "1:a",
-                        "-c:v", "copy", "-c:a", "aac", "-b:a", "160k", "-shortest", "-movflags", "+faststart", str(out))  # fmt: skip
+                        "-c:v", "copy", "-c:a", "aac", "-b:a", abr, "-shortest", "-movflags", "+faststart", str(out))  # fmt: skip
                 info = media.media_meta(out) | {"missing_shots": missing, "shots": len(shots),
                                                 "layout": "shorts" if cv.is_short else "long_form"}  # fmt: skip
-                replace_derived(db, p, "preview", out, "mp4", "video/mp4", info)
-            meta["preview"] = {"status": "done", "missing_shots": missing}
+                replace_derived(db, p, kind, out, "mp4", "video/mp4", info)
+            meta[meta_key] = {"status": "done", "missing_shots": missing}
         except Exception as e:  # noqa: BLE001
             log.exception("preview failed")
             db.rollback()
             p = db.get(Project, pid)
-            meta["preview"] = {"status": "failed", "error": f"{type(e).__name__}: {e}"[:2000]}
+            meta[meta_key] = {"status": "failed", "error": f"{type(e).__name__}: {e}"[:2000]}
         p.plan_meta = meta
         db.commit()
 
 
 def _overlays(p, profile, cv: style.Canvas, video: Path, work: Path, W: int, H: int,  # noqa: N803
-              wm_windows: list[tuple[float, float]]) -> Path:  # fmt: skip
+              wm_windows: list[tuple[float, float]], crf: str = "24", preset: str = "veryfast") -> Path:  # fmt: skip
     """Face-cam circle (long-form) + top-right watermark on shots without the footer."""
     storage = get_storage()
     inputs, chains, last = ["-i", str(video)], [], "0:v"
@@ -136,15 +149,15 @@ def _overlays(p, profile, cv: style.Canvas, video: Path, work: Path, W: int, H: 
     text = style.watermark_text(profile)
     if wm_windows and text and FONT.exists():
         enable = "+".join(f"between(t,{a:.3f},{b - 0.001:.3f})" for a, b in wm_windows)
-        size = 18 if cv.is_short else 20
+        size = round((18 if cv.is_short else 20) * W / (540 if cv.is_short else 1280))
         chains.append(
             f"[{last}]drawtext=fontfile={FONT}:text='{_escape_drawtext(text)}':fontsize={size}:"
-            f"fontcolor=white@0.72:x=w-tw-28:y=24:shadowcolor=black@0.5:shadowx=1:shadowy=1:enable='{enable}'[v3]"
+            f"fontcolor=white@0.72:x=w-tw-{round(28 * W / (540 if cv.is_short else 1280))}:y={round(24 * W / (540 if cv.is_short else 1280))}:shadowcolor=black@0.5:shadowx=1:shadowy=1:enable='{enable}'[v3]"
         )
         last = "v3"
     if not chains:
         return video
     out = work / "video_overlay.mp4"
     _ffmpeg(*inputs, "-filter_complex", ";".join(chains), "-map", f"[{last}]", "-an", "-c:v", "libx264",
-            "-preset", "veryfast", "-crf", "24", "-pix_fmt", "yuv420p", str(out))  # fmt: skip
+            "-preset", preset, "-crf", crf, "-pix_fmt", "yuv420p", str(out))  # fmt: skip
     return out

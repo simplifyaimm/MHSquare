@@ -86,6 +86,19 @@ PRESETS = {
     },
 }
 
+EXPLAIN_MODES = {
+    "tech": "Product / system explainer: glass panels, pills + LEDs, hub-and-spoke wiring, counters, code windows, "
+    "before/after splits. Default for architecture and how-a-system-works.",
+    "flow": "Protocol / request-flow / sequence diagrams: actors with icons, lifelines, numbered steps on dashed arrows "
+    "(1 → 2 → 3), request/response labels, a guiding question. Best for auth, APIs, pipelines, step-by-step processes.",
+    "lecture": "Calm chalk-talk: chapter tag, tables/matrices filled cell by cell, numbered points with visual evidence, "
+    'vectors and maths. Best for concepts, encodings, formulas, comparisons of properties, "three problems with X".',
+    "sketch": "Whiteboard intuition: hand-drawn arrows that draw themselves, handwritten notes, doodle icons, a confused "
+    'stick figure. Best for framing the problem, "imagine…", rough mental models, analogies.',
+    "story": "Flat cartoon scene with the recurring character X (or a named character): people, situations, "
+    "emotions, the real-world example in action.",
+}
+
 ANIMATION_STYLE = {
     "background": {"from": "#0a1626", "to": "#060b14", "grid_px": 54, "grid_color": "rgba(72,202,228,0.07)"},
     "palette": {
@@ -112,8 +125,16 @@ ANIMATION_STYLE = {
         "#2d2d2d",
         "#007acc",
     ],  # fmt: skip
-    "fonts": {"headline": "Oswald", "body": "Poppins", "mono": "JetBrains Mono", "code": "Consolas"},
-    "allowed_fonts": ["Oswald", "Poppins", "JetBrains Mono", "Consolas"],
+    "fonts": {
+        "headline": "Oswald",
+        "body": "Poppins",
+        "mono": "JetBrains Mono",
+        "code": "Consolas",
+        "handwriting": "Caveat",
+    },
+    "allowed_fonts": ["Oswald", "Poppins", "JetBrains Mono", "Consolas", "Caveat"],
+    # Explanation modes the planner chooses from per chunk (from the reference samples). Editable.
+    "explain_modes": EXPLAIN_MODES,
     "entry": {"stagger_total_s": [4, 6], "hold_final": True},
     "footer": {"enabled": True, "left": "NO HYPE. REAL SYSTEMS.", "right": "@simplifyai.mm"},
     "code_demo": "vscode_windows",  # VS Code on Windows: title-bar controls on the RIGHT, Consolas, #1e1e1e, #007acc

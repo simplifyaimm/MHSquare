@@ -42,6 +42,7 @@ def get_media(
     request: Request,
     exp: int = Query(...),
     sig: str = Query(..., max_length=64),
+    dl: str | None = Query(None, max_length=120, pattern=r"^[\w .()-]+$"),
     db: Session = Depends(get_db),
 ):
     if not verify(str(asset_id), exp, sig):
@@ -54,7 +55,7 @@ def get_media(
     headers = {
         "Accept-Ranges": "bytes",
         "Cache-Control": "private, max-age=3600",
-        "Content-Disposition": "inline",
+        "Content-Disposition": f'attachment; filename="{dl}"' if dl else "inline",
         "X-Content-Type-Options": "nosniff",
     }
     try:

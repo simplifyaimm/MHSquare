@@ -44,8 +44,8 @@ def gen_take(take_id: str) -> None:
 
 
 @celery_app.task(name="preview.build")
-def preview_build(project_id: str) -> None:
-    preview.build_preview(project_id)
+def preview_build(project_id: str, quality: str = "proxy") -> None:
+    preview.build_preview(project_id, quality)
 
 
 def dispatch_takes(chains: list[list[str]]) -> None:

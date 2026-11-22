@@ -54,6 +54,7 @@ const data: ShotsResponse = {
   estimate_usd: 0.12,
   spent_usd: 0.1,
   preview: null,
+  final: null,
   allowed_visual_types: ["code_animation", "text_card"],
 };
 

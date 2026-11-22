@@ -31,6 +31,29 @@ window.mhWire = function (svg, x1, y1, x2, y2, bend, cls) {
   (typeof svg === 'string' ? document.querySelector(svg) : svg).appendChild(p);
   return p;
 };
+// hand-drawn path through points (seeded wobble → deterministic); animate with tl.from(p,{drawSVG:0})
+window.mhSketchPath = function (svg, pts, o) {
+  o = Object.assign({ wobble: 3, cls: "" }, o || {});
+  let d = `M${pts[0][0]},${pts[0][1]}`;
+  for (let i = 1; i < pts.length; i++) {
+    const [x0, y0] = pts[i - 1], [x1, y1] = pts[i];
+    const mx = (x0 + x1) / 2 + (Math.random() - .5) * o.wobble * 4, my = (y0 + y1) / 2 + (Math.random() - .5) * o.wobble * 4;
+    d += ` Q${mx},${my} ${x1},${y1}`;
+  }
+  const p = document.createElementNS("http://www.w3.org/2000/svg", "path");
+  p.setAttribute("d", d); if (o.cls) p.setAttribute("class", o.cls);
+  (typeof svg === "string" ? document.querySelector(svg) : svg).appendChild(p);
+  return p;
+};
+// arrow head at (x,y) pointing along angle (degrees); returns the polyline
+window.mhArrowHead = function (svg, x, y, angle, cls, size) {
+  size = size || 16; const a = angle * Math.PI / 180, s = 0.5;
+  const p = document.createElementNS("http://www.w3.org/2000/svg", "polyline");
+  const l = [x - size * Math.cos(a - s), y - size * Math.sin(a - s)], r = [x - size * Math.cos(a + s), y - size * Math.sin(a + s)];
+  p.setAttribute("points", `${l[0]},${l[1]} ${x},${y} ${r[0]},${r[1]}`); if (cls) p.setAttribute("class", cls);
+  (typeof svg === "string" ? document.querySelector(svg) : svg).appendChild(p);
+  return p;
+};
 window.mhCount = function (tl, el, from, to, at, dur, fmt) {
   el = typeof el === 'string' ? document.querySelector(el) : el;
   const o = { v: from }; el.textContent = fmt ? fmt(from) : Math.round(from);
@@ -136,7 +159,7 @@ Output ONLY the <svg>…</svg> markup in a ```svg fenced block. No scripts, no e
 
 def scene_system(theme: str, stage_w: int = 1920, stage_h: int = 1080) -> str:
     rules = COMMON_RULES.replace("STAGE_W", str(stage_w)).replace("STAGE_H", str(stage_h))
-    return f"{rules}\n\n{STORY_DOC if theme == 'story' else TECH_DOC}"
+    return f"{rules}\n\n{mode_doc(theme)}"
 
 
 def scene_user(*, prompt: str, duration_ms: int, words: list[dict], style_guide: dict, theme: str,
@@ -167,4 +190,52 @@ def fix_user(error: str, logs: list[str]) -> str:
     return (
         "The scene failed to render. Fix it and return all three blocks again.\n"
         f"Error: {error}\nBrowser logs:\n" + "\n".join(logs[-15:])
+    )
+
+
+FLOW_DOC = """## Mode "flow" — protocol / request-flow / sequence diagrams (brand palette)
+Background: `<div class="fl-bg"></div>` (near-black). Wires: `<svg class="mh-wires"></svg>` + mhWire(svg,x1,y1,x2,y2,'straight','dash')
+and mhArrowHead(svg,x2,y2,angleDeg,'arrow-head') — dashed arrows that DRAW in (tl.from(path,{drawSVG:0})).
+Actors / systems: <div class="fl-actor" style="left:300px;top:160px"><div class="ic"><svg viewBox="0 0 48 48">…line icon…</svg></div>
+  <b>Client (Browser)</b><small>holds the token</small></div>  (left = centre x)
+Lifelines (sequence diagrams): <div class="fl-lifeline" style="left:299px;top:280px;height:620px"></div>
+Numbered steps: <div class="fl-step" style="left:..;top:..">1</div> (.good .bad) placed ON the arrow start.
+Arrow labels: <div class="fl-label" style="left:centreX;top:..">GET /dashboard<small>with session cookie</small></div>
+Tokens/payload chips: <div class="fl-token">Authorization: Bearer &lt;token&gt;</div>
+Guiding question: <div class="fl-question" style="left:960px;top:..">how does it know it's you?</div>
+Concept cards row: <div class="fl-cards" style="left:960px;top:..">
+  <div class="fl-card"><svg viewBox="0 0 48 48">…</svg>Cookies</div>…</div>
+Signature moves: steps appear one by one IN ORDER on their spoken words (1 → 2 → 3…), each arrow drawing from sender
+to receiver with its label; replies drawn right-to-left; the active step glows, earlier ones stay visible; a red
+"expires" chip for failure paths; sequence diagrams grow downward."""
+
+LECTURE_DOC = """## Mode "lecture" — calm chalk-talk for concepts, encodings, maths, tables (brand palette)
+Background: `<div class="lx-bg"></div>` (dark slate). Chapter tag (top-left): <div class="lx-chapter"><b>01</b> One-hot encoding</div>
+Section title: <div class="lx-title" style="top:150px">Three problems</div>
+Tables/matrices: <table class="lx-table" style="left:..;top:.."><tr><th></th><th>you</th>…</tr>
+  <tr><th class="row">amazing</th><td>0</td><td class="on hl">1</td>…</tr></table> — reveal row by row / cell by cell
+  (stagger 0.05–0.12 s), then highlight the key cell (.hl) on its word.
+Numbered points with evidence: <ul class="lx-list" style="left:..;top:.."><li><i>1.</i> Too big</li>…</ul> and on the right
+  <div class="lx-evidence" style="left:..;top:.."><div class="lx-vec">[0 0 0 … <span class="on">1</span> … 0]</div>one 1 and 9,999 zeros</div>
+  Each point + its evidence appears on its word; previous points stay; the current one is bright, others .lx-dim.
+Vectors / maths: .lx-vec (mono), .lx-math (expressions, e.g. "amazing · excellent = 0"), .lx-strip (row of tiny cells, .on).
+Signature moves: slow, deliberate reveals; one highlighted thing at a time; numbers typed in; a cell outline that
+travels; chapter number changes between sections (01 → 02) as a mini title card."""
+
+SKETCH_DOC = """## Mode "sketch" — whiteboard intuition, problem framing, "imagine…" (brand palette, hand-drawn)
+Background: `<div class="sk-bg"></div>` (dark board). Draw EVERYTHING as strokes in one <svg class="sk"></svg>:
+  mhSketchPath(svg, [[x,y],[x,y],…], {cls:'accent'|'', wobble:2–4}) → hand-drawn curve; animate tl.from(p,{drawSVG:0,duration:.6–1.2,ease:'power1.inOut'})
+  so lines visibly DRAW THEMSELVES; mhArrowHead(svg,x,y,angle) at the end of arrows.
+  Doodle icons as simple stroked shapes in that svg: database (stacked ellipses), file stack (rects with lines),
+  chat window, magnifier, brain/neural net (circles + lines), stick figure (circle head + line body) with a "?" or "ho…".
+Handwritten notes: <div class="sk-note" style="left:..;top:..">500 GB of files</div> (.sm .lg .accent; rotate a few degrees
+  along a curve for "only a few files"). Braces: a "}" drawn with mhSketchPath next to a group. Simple UI: .sk-window with
+  <b>ChatBot</b> and .sk-bubble bars. File lists: <div class="sk-files">kode_kloud.pdf\nservice_agreement.pdf\n…</div>.
+Signature moves: mostly white strokes with ONE accent colour for the key idea; things are drawn in the order they're
+spoken; arrows sweep between ideas; a confused stick figure for the problem; a crossed-out wrong path, then the right one."""
+
+
+def mode_doc(theme: str) -> str:
+    return {"story": STORY_DOC, "flow": FLOW_DOC, "lecture": LECTURE_DOC, "sketch": SKETCH_DOC}.get(
+        theme, TECH_DOC
     )

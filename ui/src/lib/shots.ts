@@ -38,7 +38,7 @@ export type Shot = {
   end_ms: number;
   transcript_text: string;
   visual_type: VisualType;
-  theme: "tech" | "story";
+  theme: ExplainMode;
   prompt: string;
   notes: string;
   depends_on_previous: boolean;
@@ -61,11 +61,13 @@ export type ShotsResponse = {
     cost_usd?: number;
     model?: string;
     preview?: { status: string; error?: string; missing_shots?: number };
+    final?: { status: string; error?: string; missing_shots?: number };
   };
   shots: Shot[];
   estimate_usd: number;
   spent_usd: number;
   preview: { url: string; meta: Record<string, unknown> } | null;
+  final: { url: string; meta: Record<string, unknown>; size: number } | null;
   allowed_visual_types: VisualType[];
 };
 
@@ -91,6 +93,7 @@ export function useShots(pid: string, enabled = true) {
       const busy =
         d.status === "planning" ||
         d.plan_meta.preview?.status === "running" ||
+        d.plan_meta.final?.status === "running" ||
         d.shots.some((s) => BUSY_STATES.includes(s.state));
       return busy ? 2500 : false;
     },
@@ -158,3 +161,31 @@ export const TYPE_COLOR: Record<VisualType, string> = {
   text_card: "#8A93A6",
   a_roll: "#22C55E",
 };
+
+export type ExplainMode = "tech" | "flow" | "lecture" | "sketch" | "story";
+export const MODES: { id: ExplainMode; label: string; hint: string }[] = [
+  { id: "tech", label: "Tech", hint: "system explainer — panels, pills, wiring, code" },
+  { id: "flow", label: "Flow", hint: "protocol / sequence — numbered steps on arrows" },
+  { id: "lecture", label: "Lecture", hint: "tables, maths, numbered points with evidence" },
+  { id: "sketch", label: "Sketch", hint: "hand-drawn whiteboard intuition" },
+  { id: "story", label: "Story", hint: "cartoon scene with a character" },
+];
+
+export const useRenderFinal = (pid: string) => useAct(pid, () => post(`/projects/${pid}/render-final`));
+
+export type LibraryScript = {
+  asset_id: string;
+  title: string;
+  project: string;
+  project_id: string;
+  words: number | null;
+  original_name: string | null;
+  created_at: string;
+};
+
+export function useScriptLibrary() {
+  return useQuery({ queryKey: ["scripts"], queryFn: () => api<LibraryScript[]>("/scripts") });
+}
+
+export const useUseLibraryScript = (pid: string) =>
+  useAct(pid, (asset_id: string) => post(`/projects/${pid}/script/from-library`, { asset_id }));
