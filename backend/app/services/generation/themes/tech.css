@@ -73,3 +73,7 @@ svg.mh-wires .dot{fill:var(--accent2);stroke:none;filter:drop-shadow(0 0 8px rgb
 /* progress / bars */
 .mh-bar{height:12px;border-radius:999px;background:rgba(130,160,215,.15);overflow:hidden}
 .mh-bar>i{display:block;height:100%;border-radius:inherit;background:linear-gradient(90deg,var(--accent),var(--accent2))}
+/* scene header — always inside the safe area */
+.mh-header{position:absolute;left:120px;top:96px;display:flex;flex-direction:column;gap:12px;max-width:1300px}
+.mh-header .mh-eyebrow{font-size:17px}
+.mh-header .mh-title{font-size:52px}

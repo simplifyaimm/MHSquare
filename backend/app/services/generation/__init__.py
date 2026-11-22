@@ -35,7 +35,7 @@ from app.services.ingest.pipeline import latest_asset
 from app.services.storage import get_storage
 
 log = logging.getLogger(__name__)
-GENERATOR_VERSION = "1"
+GENERATOR_VERSION = "2"  # bump when prompts/themes change so the cache does not reuse old looks
 
 
 class GenerationError(RuntimeError):
