@@ -1,9 +1,14 @@
+import logging
+
 from celery import chain
+from celery.signals import worker_ready
 
 from app.services import generation, planner
 from app.services.assembly import preview
 from app.services.ingest import pipeline, tts
 from app.workers.celery_app import celery_app
+
+log = logging.getLogger(__name__)
 
 
 @celery_app.task(name="mhsquare.ping")
@@ -38,9 +43,18 @@ def plan_run(project_id: str) -> None:
     planner.run_planning(project_id)
 
 
-@celery_app.task(name="gen.take", acks_late=True)
+@celery_app.task(name="gen.take", acks_late=True, soft_time_limit=1200, time_limit=1260)
 def gen_take(take_id: str) -> None:
+    """Hard cap of ~20 min per take (LLM + up to 3 renders); a hung take fails instead of blocking a slot."""
     generation.run_take(take_id)
+
+
+@worker_ready.connect
+def _recover_on_boot(sender=None, **_) -> None:
+    if str(getattr(sender, "hostname", "")).startswith("celery@"):  # the generation worker, not the ML one
+        n = generation.recover_interrupted()
+        if n:
+            log.warning("marked %d interrupted takes as failed", n)
 
 
 @celery_app.task(name="preview.build")

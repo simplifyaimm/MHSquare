@@ -278,6 +278,31 @@ def test_planner_retries_once_with_validation_errors(fakes, ready_project, monke
     assert data["plan_meta"]["cost_usd"] == 0.04
 
 
+def test_worker_boot_fails_interrupted_takes_and_skips_them(fakes, ready_project):
+    import uuid as _uuid
+
+    from app.models import Shot, ShotState, Take
+    from app.services import generation
+
+    c, csrf, pid = ready_project
+    c.post(f"/api/projects/{pid}/plan", headers={"X-CSRF-Token": csrf})
+    with get_sessionmaker()() as db:
+        shots = db.query(Shot).filter(Shot.project_id == _uuid.UUID(pid)).order_by(Shot.index).all()
+        running, pending = generation.queue_shot(db, shots[0]), generation.queue_shot(db, shots[1])
+        running.status, shots[0].state = "running", ShotState.generating
+        db.commit()
+        rid, pend_id = running.id, pending.id
+    assert generation.recover_interrupted() == 1
+    with get_sessionmaker()() as db:
+        t = db.get(Take, rid)
+        assert t.status == "failed" and "Interrupted" in t.error
+        assert db.get(Shot, t.shot_id).state == ShotState.failed
+        assert db.get(Take, pend_id).status == "pending"  # still in the durable queue
+    calls = len(fakes[0].calls)
+    generation.run_take(str(rid))  # a redelivered message for a failed take is a no-op
+    assert len(fakes[0].calls) == calls
+
+
 def test_planner_truncated_reply_retries_compact_with_more_tokens(fakes, ready_project, monkeypatch):
     c, csrf, pid = ready_project
     seen = []

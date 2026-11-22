@@ -411,12 +411,30 @@ def queue_shot(db: Session, shot: Shot, note: str | None = None, keep_seed: bool
     return take
 
 
+INTERRUPTED = "Interrupted (worker or Docker restarted). Generate again."
+
+
+def recover_interrupted() -> int:
+    """Worker boot: a take still 'running' belongs to a worker that died (single generation worker), so it can
+    never finish. Fail it so the shot doesn't show 'generating' forever. 'pending' takes stay: their task is
+    still in the durable queue and will run."""
+    with get_sessionmaker()() as db:
+        stuck = db.scalars(select(Take).where(Take.status == "running")).all()
+        for t in stuck:
+            t.status, t.error = "failed", INTERRUPTED
+            shot = db.get(Shot, t.shot_id)
+            if shot.state in (ShotState.generating, ShotState.queued):
+                shot.state, shot.error = ShotState.failed, INTERRUPTED
+        db.commit()
+        return len(stuck)
+
+
 def run_take(take_id: str) -> None:
     """Worker entry point. All state transitions are persisted (crash-safe)."""
     tid = uuid.UUID(take_id)
     with get_sessionmaker()() as db:
         take = db.get(Take, tid)
-        if take is None or take.status == "done":
+        if take is None or take.status in ("done", "failed"):  # done, or cancelled / interrupted
             return
         shot = db.get(Shot, take.shot_id)
         p = db.get(Project, shot.project_id)
