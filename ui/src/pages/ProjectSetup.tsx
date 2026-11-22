@@ -1,11 +1,12 @@
 import { useState } from "react";
 import { Link, Navigate, useNavigate, useParams } from "react-router-dom";
-import { ArrowLeft, ArrowRight, Check, Play } from "lucide-react";
+import { ArrowLeft, ArrowRight, AudioLines, Check, Loader2, Play } from "lucide-react";
 import { UploadSlot } from "@/components/UploadSlot";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input, Label } from "@/components/ui/input";
 import { usePatchProject, useProject, useStartIngest, type Project } from "@/lib/projects";
+import { useTTS, useVoices } from "@/lib/shots";
 import { cn } from "@/lib/utils";
 
 const STEPS = ["Script", "Narration", "Characters", "Style", "Start"] as const;
@@ -114,6 +115,7 @@ function NarrationStep({ p }: { p: Project }) {
         hint="Your recorded voice-over. It gets cleaned and normalised to −14 LUFS."
         assets={p.assets.filter((a) => a.kind === "audio")}
       />
+      <DraftNarration p={p} />
       <UploadSlot
         projectId={p.id}
         kind="facecam"
@@ -245,6 +247,48 @@ function StartStep({ p, ready }: { p: Project; ready: boolean }) {
         <Play size={16} /> {p.status === "failed" ? "Retry ingest" : "Start ingest"}
       </Button>
       {start.error && <p className="text-sm text-danger">{start.error.message}</p>}
+    </div>
+  );
+}
+
+function DraftNarration({ p }: { p: Project }) {
+  const voices = useVoices();
+  const tts = useTTS(p.id);
+  const [voice, setVoice] = useState("Kore");
+  const running = p.ingest_step === "tts";
+  const hasScript = p.assets.some((a) => a.kind === "script");
+  return (
+    <div className="flex flex-col gap-2 rounded-lg border border-dashed border-border p-4">
+      <div className="flex items-center gap-2 text-sm font-medium">
+        <AudioLines size={16} className="text-accent-2" /> No recording yet? Test the script with an AI voice
+      </div>
+      <p className="text-xs text-muted">
+        Reads your script aloud (draft quality) and uses it as the narration. Replace it with your own
+        recording later.
+      </p>
+      <div className="flex flex-wrap gap-2">
+        <select
+          value={voice}
+          onChange={(e) => setVoice(e.target.value)}
+          className="h-10 rounded-lg border border-border bg-surface-2 px-3 text-sm"
+          aria-label="Voice"
+        >
+          {(voices.data?.voices ?? ["Kore"]).map((v) => (
+            <option key={v}>{v}</option>
+          ))}
+        </select>
+        <Button
+          variant="secondary"
+          disabled={!hasScript || running || tts.isPending}
+          onClick={() => tts.mutate(voice)}
+        >
+          {running ? <Loader2 size={16} className="animate-spin" /> : <AudioLines size={16} />}
+          {running ? "Generating narration…" : "Generate draft narration"}
+        </Button>
+      </div>
+      {!hasScript && <p className="text-xs text-warning">Upload the script first (step 1).</p>}
+      {p.error?.startsWith("Draft narration") && <p className="text-xs text-danger">{p.error}</p>}
+      {tts.error && <p className="text-xs text-danger">{tts.error.message}</p>}
     </div>
   );
 }

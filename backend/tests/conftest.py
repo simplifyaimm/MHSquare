@@ -18,6 +18,9 @@ os.environ.update(
         "MHSQUARE_LITELLM_MASTER_KEY": "sk-test-master",  # gitleaks:allow (test-only)
         "MHSQUARE_STORAGE_ROOT": f"{_tmpdir}/storage",
         "MHSQUARE_TRANSCRIBER": "fake",
+        "MHSQUARE_RENDER_OUT_DIR": f"{_tmpdir}/render-out",
+        "MHSQUARE_ROUTING_PATH": f"{_tmpdir}/routing.yaml",
+        "MHSQUARE_MOTION_RENDERER_URL": "http://127.0.0.1:9",
     }
 )
 with open(f"{_tmpdir}/llm-defaults.env", "w") as _f:

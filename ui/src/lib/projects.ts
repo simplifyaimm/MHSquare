@@ -1,7 +1,8 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "./api";
 
-export type ProjectStatus = "draft" | "ingesting" | "cuts_review" | "finalizing" | "ready" | "failed";
+export type ProjectStatus =
+  "draft" | "ingesting" | "cuts_review" | "finalizing" | "ready" | "planning" | "planned" | "failed";
 
 export type Asset = {
   id: string;
@@ -65,7 +66,7 @@ export type TranscriptResponse = {
 };
 export type Waveform = { peaks_per_second: number; duration_ms: number; peaks: number[] };
 
-const BUSY: ProjectStatus[] = ["ingesting", "finalizing"];
+const BUSY: ProjectStatus[] = ["ingesting", "finalizing", "planning"];
 export const isBusy = (s: ProjectStatus) => BUSY.includes(s);
 
 export function useProjects() {
@@ -80,7 +81,8 @@ export function useProject(id: string) {
   return useQuery({
     queryKey: ["projects", id],
     queryFn: () => api<Project>(`/projects/${id}`),
-    refetchInterval: (q) => (q.state.data && isBusy(q.state.data.status) ? 2000 : false),
+    refetchInterval: (q) =>
+      q.state.data && (isBusy(q.state.data.status) || q.state.data.ingest_step === "tts") ? 2000 : false,
   });
 }
 

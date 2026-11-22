@@ -30,6 +30,8 @@ class Settings(BaseSettings):
     llmconfig_path: str = "/mh/local/llmconfig.env"
     llm_defaults_path: str = "/mh/litellm/llm-defaults.env"
     renderer_url: str = "http://manim-renderer:8000"
+    motion_renderer_url: str = "http://motion-renderer:8000"
+    render_out_dir: str = "/render-out"  # shared volume with the motion renderer
     storage_root: str = "/data/storage"
     routing_path: str = "/config/routing.yaml"
 

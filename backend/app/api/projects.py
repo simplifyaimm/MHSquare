@@ -28,7 +28,7 @@ router = APIRouter(tags=["projects"], dependencies=[Depends(get_current_user)])
 EDITABLE = {ProjectStatus.draft, ProjectStatus.failed}
 VISIBLE_KINDS = {
     AssetKind.script, AssetKind.audio, AssetKind.facecam, AssetKind.character_ref,
-    AssetKind.audio_clean, AssetKind.audio_final, AssetKind.facecam_final,
+    AssetKind.audio_clean, AssetKind.audio_final, AssetKind.facecam_final, "preview",
 }  # fmt: skip
 
 

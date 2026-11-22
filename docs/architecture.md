@@ -18,6 +18,7 @@
 | `litellm` | Only gateway to LLM/image/video providers. Budgets via the virtual key. | core |
 | `manim-renderer` | Renders untrusted LLM-written Manim code | sandbox (`internal: true`) |
 | `transcriber` | WhisperX (CPU) Celery worker, queue `transcribe`. Model weights in the `models` volume. | core (downloads weights once) |
+| `motion-renderer` | Headless Chromium + GSAP: renders LLM-written HTML scenes frame-exactly to MP4 | sandbox (`internal: true`) |
 
 ## Rules enforced by structure
 
@@ -53,3 +54,18 @@ upload (chunked, sniffed, ffprobed)
 
 Each step writes `project.status` / `ingest_step` before it starts. A failed step shows the error in
 the UI, and **Retry** resumes from that step.
+
+## Planning → generation → review (phases 3–6 slice)
+
+```
+final transcript ─► segments with exact times ─► planner-llm (one pass) ─► shot list (word-aligned)
+   per shot, by visual_type (config/routing.yaml):
+     code_animation ─► code-llm writes HTML/CSS/GSAP (theme kit + word timings + characters)
+                        ─► static checks ─► motion-renderer (sandbox) ─► MP4 (exact frames)
+                        └─ on error: one fix round with the error/logs
+     text_card      ─► local template ─► motion-renderer (free)
+     a_roll         ─► face-cam segment (ffmpeg)
+     still_image    ─► image-gen ─► overlay scene ─► motion-renderer
+   each attempt = Take (cache by input hash) ─► review: accept / regenerate with note / pick any take
+   ─► preview: best take per shot on the narration (720p proxy)
+```

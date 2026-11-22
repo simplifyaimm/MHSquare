@@ -79,7 +79,12 @@ def ensure_budget_key(daily_usd: float) -> dict[str, Any]:
                 r = httpx.post(
                     _url("/key/update"),
                     headers=_master_headers(),
-                    json={"key": existing, "max_budget": daily_usd, "budget_duration": "1d"},
+                    json={
+                        "key": existing,
+                        "max_budget": daily_usd,
+                        "budget_duration": "1d",
+                        "models": [s.alias for s in MODEL_SLOTS],  # keep in sync with new aliases
+                    },
                     timeout=10,
                 )
                 if r.status_code >= 400:
@@ -127,3 +132,127 @@ def test_alias(alias: str) -> dict[str, Any]:
             msg = r.text
         return {"ok": False, "status": r.status_code, "message": str(msg)[:400]}
     return {"ok": True, "status": r.status_code, "message": "ok"}
+
+
+# ---------------------------------------------------------------- model calls (virtual key)
+# Retry policy (spec §7): 429 → exponential backoff with jitter (5 tries); 5xx/timeout → 3 tries,
+# then the next fallback alias; budget/quota and content-policy errors are raised immediately.
+
+import base64 as _b64  # noqa: E402
+import random as _random  # noqa: E402
+import time as _time  # noqa: E402
+from dataclasses import dataclass, field  # noqa: E402
+
+from app.llm.errors import ErrorKind, LLMError, classify  # noqa: E402
+
+RATE_LIMIT_TRIES = 5
+TRANSIENT_TRIES = 3
+_sleep = _time.sleep  # patched in tests
+
+
+@dataclass
+class CallResult:
+    alias: str
+    cost_usd: float
+    data: dict = field(default_factory=dict)
+    content: bytes = b""
+
+
+def _error_message(resp: httpx.Response) -> str:
+    try:
+        err = resp.json().get("error", {})
+        return str(err.get("message") if isinstance(err, dict) else err) or resp.text
+    except ValueError:
+        return resp.text
+
+
+def _post_once(path: str, body: dict, timeout: float) -> httpx.Response:
+    if not settings_store.virtual_key():
+        raise LLMError(ErrorKind.invalid, "No mhsquare LiteLLM key: set a daily budget in Settings first")
+    try:
+        return httpx.post(_url(path), headers=_virtual_headers(), json=body, timeout=timeout)
+    except httpx.TimeoutException as e:
+        raise LLMError(ErrorKind.transient, f"timeout after {timeout}s") from e
+    except httpx.HTTPError as e:
+        raise LLMError(ErrorKind.transient, f"LiteLLM unreachable: {e}") from e
+
+
+def _call(path: str, body: dict, aliases: list[str], timeout: float) -> tuple[str, httpx.Response]:
+    """POST with retry/backoff; on persistent transient errors move to the next alias."""
+    last: LLMError | None = None
+    for alias in aliases:
+        rate_tries = transient_tries = 0
+        while True:
+            try:
+                resp = _post_once(path, {**body, "model": alias}, timeout)
+                if resp.status_code < 400:
+                    return alias, resp
+                err = LLMError(classify(resp.status_code, _error_message(resp)), _error_message(resp)[:2000],
+                               resp.status_code)  # fmt: skip
+            except LLMError as e:
+                err = e
+            last = err
+            if err.kind == ErrorKind.rate_limit and rate_tries < RATE_LIMIT_TRIES - 1:
+                rate_tries += 1
+                _sleep(min(60, 2**rate_tries) + _random.uniform(0, 1))  # noqa: S311
+                continue
+            if err.kind == ErrorKind.transient and transient_tries < TRANSIENT_TRIES - 1:
+                transient_tries += 1
+                _sleep(2 * transient_tries)
+                continue
+            if err.kind == ErrorKind.transient:
+                break  # try the next fallback alias
+            raise err
+    assert last is not None
+    raise last
+
+
+def _cost(resp: httpx.Response) -> float:
+    try:
+        return float(resp.headers.get("x-litellm-response-cost") or 0.0)
+    except ValueError:
+        return 0.0
+
+
+def chat(
+    alias: str,
+    messages: list[dict],
+    *,
+    system: str | None = None,
+    fallbacks: list[str] | None = None,
+    max_tokens: int = 8000,
+    temperature: float = 0.4,
+    timeout: float = 600,
+) -> tuple[str, CallResult]:
+    """Chat completion → (text, result)."""
+    msgs = ([{"role": "system", "content": system}] if system else []) + messages
+    used, resp = _call(
+        "/chat/completions",
+        {"messages": msgs, "max_tokens": max_tokens, "temperature": temperature},
+        [alias, *(fallbacks or [])],
+        timeout,
+    )
+    data = resp.json()
+    text = data["choices"][0]["message"].get("content") or ""
+    if data["choices"][0].get("finish_reason") == "length":
+        raise LLMError(ErrorKind.invalid, f"{used}: response cut off at max_tokens={max_tokens}")
+    return text, CallResult(alias=used, cost_usd=_cost(resp), data={"usage": data.get("usage", {})})
+
+
+def generate_image(alias: str, prompt: str, *, size: str = "1536x1024", fallbacks: list[str] | None = None,
+                   timeout: float = 300) -> tuple[bytes, CallResult]:  # fmt: skip
+    used, resp = _call("/images/generations", {"prompt": prompt, "n": 1, "size": size},
+                       [alias, *(fallbacks or [])], timeout)  # fmt: skip
+    item = (resp.json().get("data") or [{}])[0]
+    if item.get("b64_json"):
+        img = _b64.b64decode(item["b64_json"])
+    elif item.get("url"):  # provider URLs expire: download immediately
+        img = httpx.get(item["url"], timeout=120).content
+    else:
+        raise LLMError(ErrorKind.invalid, "image response had no data")
+    return img, CallResult(alias=used, cost_usd=_cost(resp))
+
+
+def speech(alias: str, text: str, voice: str, timeout: float = 600) -> tuple[bytes, CallResult]:
+    used, resp = _call("/audio/speech", {"input": text, "voice": voice}, [alias], timeout)
+    return resp.content, CallResult(alias=used, cost_usd=_cost(resp))

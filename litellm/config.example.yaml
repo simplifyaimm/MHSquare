@@ -22,6 +22,9 @@ model_list:
     litellm_params: { model: os.environ/MH_MODEL_VIDEO_GEN }
   - model_name: video-gen-fast
     litellm_params: { model: os.environ/MH_MODEL_VIDEO_GEN_FAST }
+  # draft narration from a script (testing without a recording)
+  - model_name: tts
+    litellm_params: { model: os.environ/MH_MODEL_TTS }
 
 litellm_settings:
   drop_params: true

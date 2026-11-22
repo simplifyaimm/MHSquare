@@ -9,6 +9,7 @@ from app.models.project import (
     Transcript,
     Upload,
 )
+from app.models.shot import Shot, ShotState, Take, VisualType
 from app.models.user import AuthSession, User
 
 __all__ = [
@@ -23,4 +24,8 @@ __all__ = [
     "Upload",
     "Transcript",
     "CutProposal",
+    "Shot",
+    "ShotState",
+    "Take",
+    "VisualType",
 ]

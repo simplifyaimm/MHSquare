@@ -4,7 +4,7 @@
 
 visual_types:
   code_animation:
-    generator: manim_code          # LLM writes Manim code -> sandbox renders it
+    generator: html_motion         # LLM writes an HTML/GSAP scene -> sandboxed Chromium renders it
     llm_model: code-llm
     fallbacks: [code-llm-backup]
   ai_clip:
@@ -14,12 +14,17 @@ visual_types:
     durations_allowed: [4, 6, 8]
     fallbacks: [video-gen-fast]
   still_image:
-    generator: image
+    generator: image               # image + animated overlay (push-in, callouts) via html_motion
     model: image-gen
-    motion: ken_burns              # slow pan/zoom applied at assembly
+    llm_model: code-llm
+    motion: ken_burns
   text_card:
     generator: template            # rendered locally, no AI cost
   a_roll:
     generator: passthrough         # face-cam footage
 planner:
   model: planner-llm
+  fallbacks: []
+  # Visual types the planner may use. Remove still_image / ai_clip while no image/video
+  # provider has credits — story scenes then become illustrated (SVG) motion scenes.
+  allowed_visual_types: [code_animation, still_image, ai_clip, text_card, a_roll]

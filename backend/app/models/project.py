@@ -13,7 +13,9 @@ class ProjectStatus(enum.StrEnum):
     ingesting = "ingesting"  # cleanup + first transcription + cut detection
     cuts_review = "cuts_review"  # waiting for me to approve cuts
     finalizing = "finalizing"  # applying cuts + final transcription
-    ready = "ready"  # final transcript exists → plan shots (phase 3)
+    ready = "ready"  # final transcript exists → plan shots
+    planning = "planning"  # LLM is writing the shot list
+    planned = "planned"  # shot list exists: edit, generate, review, preview
     failed = "failed"
 
 
@@ -60,7 +62,8 @@ class Project(Base):
     resolution: Mapped[str] = mapped_column(String(16), default="1920x1080")
     fps: Mapped[int] = mapped_column(Integer, default=30)
     style_notes: Mapped[str] = mapped_column(Text, default="")
-    style_guide: Mapped[dict] = mapped_column(JSON, default=dict)  # versioned in phase 3
+    style_guide: Mapped[dict] = mapped_column(JSON, default=dict)  # {"version": n, …}
+    plan_meta: Mapped[dict | None] = mapped_column(JSON, nullable=True)  # planner cost/model/error
     facecam_offset_ms: Mapped[int] = mapped_column(Integer, default=0)
     ingest_settings: Mapped[dict] = mapped_column(JSON, default=lambda: dict(DEFAULT_INGEST_SETTINGS))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)

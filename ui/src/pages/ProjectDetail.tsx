@@ -1,8 +1,10 @@
 import { useEffect, useRef, useState } from "react";
 import { Link, Navigate, useNavigate, useParams } from "react-router-dom";
-import { ArrowLeft, Check, Loader2, RotateCcw, Trash2 } from "lucide-react";
+import { ArrowLeft, Check, Loader2, RotateCcw, Trash2, Wand2 } from "lucide-react";
 import { CutsReview } from "@/components/CutsReview";
 import { ProjectStatusChip } from "@/components/ProjectStatusChip";
+import { ShotBoard } from "@/components/ShotBoard";
+import { usePlan } from "@/lib/shots";
 import { Waveform } from "@/components/Waveform";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -81,9 +83,19 @@ export function ProjectDetailPage() {
         </span>
       </div>
 
-      {p.status !== "cuts_review" && <PipelineSteps p={p} />}
+      {!["cuts_review", "planning", "planned", "ready"].includes(p.status) && <PipelineSteps p={p} />}
       {p.status === "failed" && <FailedCard p={p} />}
       {p.status === "cuts_review" && <CutsReview project={p} />}
+      {(p.status === "ready" || p.status === "planning") && <PlanCard p={p} />}
+      {p.status === "planned" && <ShotBoard projectId={p.id} />}
+      {p.status === "planned" && (
+        <details className="rounded-xl border border-border bg-surface p-4">
+          <summary className="cursor-pointer text-sm text-muted">Narration and final transcript</summary>
+          <div className="mt-4 flex flex-col gap-4">
+            <ReadyView p={p} />
+          </div>
+        </details>
+      )}
       {p.status === "ready" && <ReadyView p={p} />}
     </div>
   );
@@ -226,12 +238,34 @@ function ReadyView({ p }: { p: Project }) {
           )}
         </CardContent>
       </Card>
-
-      <Card className="border-accent/30">
-        <CardContent className="text-sm text-muted">
-          Next: plan the shot list from this transcript (phase 3).
-        </CardContent>
-      </Card>
     </>
+  );
+}
+
+function PlanCard({ p }: { p: Project }) {
+  const plan = usePlan(p.id);
+  const planning = p.status === "planning";
+  return (
+    <Card className="border-accent/40">
+      <CardContent className="flex flex-col gap-3">
+        <div className="flex flex-wrap items-center gap-3">
+          <div className="min-w-0 flex-1">
+            <div className="font-medium">Plan the shot list</div>
+            <p className="text-sm text-muted">
+              One AI pass over the final transcript and your script: every moment gets a visual — tech
+              animations, illustrated story scenes, text cards
+              {p.assets.some((a) => a.kind === "facecam_final") ? ", face-cam" : ""}. You can edit everything
+              before generating.
+            </p>
+          </div>
+          <Button size="lg" onClick={() => plan.mutate()} disabled={planning || plan.isPending}>
+            {planning ? <Loader2 size={16} className="animate-spin" /> : <Wand2 size={16} />}
+            {planning ? "Planning… (about a minute)" : "Plan shots"}
+          </Button>
+        </div>
+        {p.error && <p className="text-sm text-danger">{p.error}</p>}
+        {plan.error && <p className="text-sm text-danger">{plan.error.message}</p>}
+      </CardContent>
+    </Card>
   );
 }

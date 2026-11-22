@@ -45,9 +45,10 @@ the gitleaks binary or Docker.
 - [x] Phase 1 — Skeleton (compose stack, auth, dark app shell, health, hooks)
 - [x] Settings → AI providers (keys/models/budget from the UI → `local/llmconfig.env`)
 - [x] Phase 2 — Ingest (chunked uploads, −14 LUFS cleanup, WhisperX word timestamps, filler/pause cuts + review, face-cam cuts, final transcript)
-- [ ] Phase 3 — Planning
-- [ ] Phase 4 — Code animations
-- [ ] Phase 5 — Images, keyframes, AI clips
-- [ ] Phase 6 — Review, state machine, budget
+- [x] Phase 3 — Planning (single-pass planner, word-synced briefs, shot list edit/split/merge, estimate)
+- [x] Phase 4 — Code animations (as HTML/GSAP motion scenes in a sandboxed Chromium; tech + story themes; character rigs)
+- [~] Phase 5 — Images, keyframes, AI clips (image + overlay path built; needs an image/video provider with credit)
+- [~] Phase 6 — Review, state machine, budget (takes, accept, regenerate-with-note, error→state mapping; SSE/runs/auto-resume pending)
+- [x] Draft narration (TTS) + 720p preview render
 - [ ] Phase 7 — Assembly and export
 - [ ] Phase 8 — Mobile and polish

@@ -14,6 +14,8 @@ x-backend-env: &backend-env
   MHSQUARE_LLMCONFIG_PATH: /mh/local/llmconfig.env
   MHSQUARE_LLM_DEFAULTS_PATH: /mh/litellm/llm-defaults.env
   MHSQUARE_RENDERER_URL: http://manim-renderer:8000
+  MHSQUARE_MOTION_RENDERER_URL: http://motion-renderer:8000
+  MHSQUARE_RENDER_OUT_DIR: /render-out
   MHSQUARE_STORAGE_ROOT: /data/storage
   MHSQUARE_ROUTING_PATH: /config/routing.yaml
 
@@ -102,6 +104,7 @@ services:
       - ./config/routing.yaml:/config/routing.yaml:ro
       - ./local:/mh/local:ro
       - ./litellm:/mh/litellm:ro
+      - motion_out:/render-out
     depends_on:
       api: { condition: service_healthy }   # api runs migrations first
     healthcheck:
@@ -129,6 +132,26 @@ services:
       retries: 5
     mem_limit: 6g
     networks: [core]                      # needs internet once, to download model weights
+    restart: unless-stopped
+
+  motion-renderer:
+    build: ./renderers/motion
+    read_only: true
+    tmpfs:
+      - /tmp:size=1g,mode=1777
+    volumes:
+      - motion_out:/out
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    cpus: 4
+    mem_limit: 4g
+    pids_limit: 512
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request;urllib.request.urlopen('http://localhost:8000/health')"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+    networks: [sandbox]   # internal network: no internet egress; the page itself also blocks all requests
     restart: unless-stopped
 
   manim-renderer:
@@ -176,3 +199,4 @@ volumes:
   storage: {}
   render_out: {}
   models: {}
+  motion_out: {}

@@ -36,3 +36,6 @@ ui/playwright-report/
 Thumbs.db
 .idea/
 .vscode/
+
+# --- reference videos (large, possibly third-party) ---
+sample/

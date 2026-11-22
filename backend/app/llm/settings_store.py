@@ -97,6 +97,13 @@ MODEL_SLOTS: tuple[ModelSlot, ...] = (
         "video",
         ("gemini/veo-3.1-fast-generate-preview",),
     ),
+    ModelSlot(
+        "tts",
+        "MH_MODEL_TTS",
+        "Draft narration voice",
+        "tts",
+        ("gemini/gemini-2.5-flash-preview-tts", "openai/gpt-4o-mini-tts"),
+    ),
 )
 SLOTS_BY_ALIAS = {s.alias: s for s in MODEL_SLOTS}
 
