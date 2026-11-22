@@ -4,6 +4,8 @@
 !.env.example
 litellm/config.yaml
 config/routing.yaml
+local/
+llmconfig.env
 *.pem
 *.key
 service_account*.json

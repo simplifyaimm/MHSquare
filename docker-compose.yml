@@ -10,7 +10,9 @@ x-backend-env: &backend-env
   MHSQUARE_UI_ORIGIN: ${MHSQUARE_UI_ORIGIN:-http://localhost:8080}
   MHSQUARE_COOKIE_SECURE: ${MHSQUARE_COOKIE_SECURE:-true}
   MHSQUARE_LITELLM_URL: http://litellm:4000
-  MHSQUARE_LITELLM_API_KEY: ${MHSQUARE_LITELLM_API_KEY}
+  MHSQUARE_LITELLM_MASTER_KEY: ${LITELLM_MASTER_KEY}   # key admin only (Settings → budget)
+  MHSQUARE_LLMCONFIG_PATH: /mh/local/llmconfig.env
+  MHSQUARE_LLM_DEFAULTS_PATH: /mh/litellm/llm-defaults.env
   MHSQUARE_RENDERER_URL: http://manim-renderer:8000
   MHSQUARE_STORAGE_ROOT: /data/storage
   MHSQUARE_ROUTING_PATH: /config/routing.yaml
@@ -48,15 +50,15 @@ services:
 
   litellm:
     image: ghcr.io/berriai/litellm:main-stable
-    command: ["--config", "/app/config.yaml", "--port", "4000"]
+    entrypoint: ["bash", "/mh/litellm/entrypoint.sh"]
+    command: []
     environment:
       DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/litellm
       LITELLM_MASTER_KEY: ${LITELLM_MASTER_KEY}
-      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
-      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
       STORE_MODEL_IN_DB: "False"
     volumes:
-      - ./litellm/config.yaml:/app/config.yaml:ro
+      - ./litellm:/mh/litellm:ro          # config + defaults + entrypoint
+      - ./local:/mh/local:ro              # llmconfig.env (provider keys, model ids) written by the UI
     ports:
       - "127.0.0.1:${LITELLM_HOST_PORT:-4000}:4000"   # localhost only: for creating virtual keys
     depends_on:
@@ -76,6 +78,8 @@ services:
     volumes:
       - storage:/data/storage
       - ./config/routing.yaml:/config/routing.yaml:ro
+      - ./local:/mh/local                 # writes llmconfig.env (Settings → AI providers)
+      - ./litellm:/mh/litellm:ro
     ports:
       - "127.0.0.1:${API_HOST_PORT:-8000}:8000"
     depends_on:
@@ -96,6 +100,8 @@ services:
     volumes:
       - storage:/data/storage
       - ./config/routing.yaml:/config/routing.yaml:ro
+      - ./local:/mh/local:ro
+      - ./litellm:/mh/litellm:ro
     depends_on:
       api: { condition: service_healthy }   # api runs migrations first
     healthcheck:

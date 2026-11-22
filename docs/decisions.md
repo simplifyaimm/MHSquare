@@ -18,3 +18,14 @@ Choices the spec left open, the option picked, and why. Newest at the bottom of 
 | 10 | **shadcn/ui components are hand-added** under `ui/src/components/ui` (same pattern: cva + tailwind-merge). Tailwind v4 with tokens in `@theme`. | shadcn is copy-in code anyway. This avoids the CLI's interactive init. |
 | 11 | **LiteLLM uses the `main-stable` image tag** and its own `litellm` database in the shared Postgres. | Virtual keys and budgets need a DB. Pin a specific tag once the stack is validated. |
 | 12 | **IDs are UUIDs** (SQLAlchemy `Uuid`). Tests run against SQLite. | Portable. No sequential IDs leak in URLs. |
+
+## LLM settings from the UI (requested after phase 1)
+
+| # | Decision | Why |
+|---|---|---|
+| 13 | **Provider keys, model IDs and the mhsquare virtual key live in `local/llmconfig.env`** (gitignored). They are edited from Settings → AI providers. Keys are write-only through the API: reads return `configured` plus a `…last4` hint. | Requested: configure everything from the UI and never commit it. |
+| 14 | **The API writes the file but never uses provider keys.** All model calls still go through LiteLLM with the virtual key. This is a narrow deviation from "backend only knows the LiteLLM URL + virtual key": the API also holds the LiteLLM master key, used only for `/key/generate` and `/key/update` (the budget screen). | Removes the manual curl step for creating the budgeted key. |
+| 15 | **LiteLLM is wrapped by `litellm/entrypoint.sh`.** It loads `llm-defaults.env` and then `llmconfig.env` (parsed, never `source`d), and restarts the proxy when either changes, polled every 3 s. Lines starting `MHSQUARE_` are ignored for change detection. | Applying new keys doesn't need the Docker socket in the API, and saving the budget key doesn't bounce the proxy. |
+| 16 | **`local/` is mounted as a directory**, not as a single file. | Single-file bind mounts don't follow atomic rename, and Docker creates a directory when the file is missing. |
+| 17 | **Model aliases are provider-neutral**: `planner-llm`, `code-llm`, `code-llm-backup`, `image-gen`, `video-gen`, `video-gen-fast`. | The provider behind an alias is now a UI choice. |
+| 18 | **Strict validation of values**: keys must be 8–512 printable ASCII characters with no whitespace. Model IDs must match `provider/model` with a safe character set. | Prevents newline/env injection into the file the proxy loads. |

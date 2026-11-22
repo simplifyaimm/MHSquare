@@ -13,8 +13,18 @@ os.environ.update(
         "MHSQUARE_LITELLM_URL": "http://127.0.0.1:9",
         "MHSQUARE_RENDERER_URL": "http://127.0.0.1:9",
         "MHSQUARE_REDIS_URL": "redis://127.0.0.1:9/0",
+        "MHSQUARE_LLMCONFIG_PATH": f"{_tmpdir}/local/llmconfig.env",
+        "MHSQUARE_LLM_DEFAULTS_PATH": f"{_tmpdir}/llm-defaults.env",
+        "MHSQUARE_LITELLM_MASTER_KEY": "sk-test-master",  # gitleaks:allow (test-only)
+        "MHSQUARE_STORAGE_ROOT": f"{_tmpdir}/storage",
+        "MHSQUARE_TRANSCRIBER": "fake",
     }
 )
+with open(f"{_tmpdir}/llm-defaults.env", "w") as _f:
+    _f.write(
+        "MH_MODEL_PLANNER_LLM=anthropic/claude-opus-5-5\nMH_MODEL_IMAGE_GEN=gemini/imagen-4.0-generate-001\n"
+    )
+TMPDIR = _tmpdir
 
 import pytest  # noqa: E402
 from fastapi.testclient import TestClient  # noqa: E402

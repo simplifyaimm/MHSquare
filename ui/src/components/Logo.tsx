@@ -11,7 +11,16 @@ export function LogoMark({ className, size = 32 }: { className?: string; size?: 
       role="img"
       aria-label="mhsquare logo"
     >
-      <rect x="9" y="9" width="32" height="32" rx="6" fill="none" strokeWidth="4" style={{ stroke: "var(--accent)" }} />
+      <rect
+        x="9"
+        y="9"
+        width="32"
+        height="32"
+        rx="6"
+        fill="none"
+        strokeWidth="4"
+        style={{ stroke: "var(--accent)" }}
+      />
       <rect
         x="23"
         y="23"

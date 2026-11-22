@@ -1,38 +1,27 @@
-# LiteLLM proxy config — EXAMPLE (committed).
-# Copy to litellm/config.yaml (gitignored). Provider keys are ONLY read via os.environ/...
-# Model aliases below are what config/routing.yaml refers to. mhsquare never sees provider names.
-# Check current model IDs in the LiteLLM docs before use: https://docs.litellm.ai/docs/providers
+# LiteLLM proxy config — EXAMPLE (committed). setup copies it to litellm/config.yaml (gitignored).
+#
+# Nothing here is user-specific: every model ID and provider key is read via os.environ/...
+# Those values live in local/llmconfig.env, which is edited from the mhsquare UI
+# (Settings → AI providers) and never committed. Defaults: litellm/llm-defaults.env.
+# LiteLLM picks the provider key from the model prefix (anthropic/ → ANTHROPIC_API_KEY,
+# gemini/ → GEMINI_API_KEY, openai/ → OPENAI_API_KEY, openrouter/ → OPENROUTER_API_KEY).
+#
+# The aliases (model_name) are what config/routing.yaml refers to. They are provider-neutral.
 
 model_list:
-  # --- LLMs ---
-  - model_name: claude-planner
-    litellm_params:
-      model: anthropic/claude-opus-5-5
-      api_key: os.environ/ANTHROPIC_API_KEY
-  - model_name: claude-code-gen
-    litellm_params:
-      model: anthropic/claude-sonnet-5-5
-      api_key: os.environ/ANTHROPIC_API_KEY
-  - model_name: claude-code-gen-backup
-    litellm_params:
-      model: anthropic/claude-haiku-5-5
-      api_key: os.environ/ANTHROPIC_API_KEY
-
-  # --- images ---
+  - model_name: planner-llm
+    litellm_params: { model: os.environ/MH_MODEL_PLANNER_LLM }
+  - model_name: code-llm
+    litellm_params: { model: os.environ/MH_MODEL_CODE_LLM }
+  - model_name: code-llm-backup
+    litellm_params: { model: os.environ/MH_MODEL_CODE_LLM_BACKUP }
   - model_name: image-gen
-    litellm_params:
-      model: gemini/imagen-4.0-generate-001
-      api_key: os.environ/GEMINI_API_KEY
-
-  # --- video (LiteLLM /videos API; Sora API is shut down — do not use) ---
-  - model_name: veo-video
-    litellm_params:
-      model: gemini/veo-3.1-generate-preview
-      api_key: os.environ/GEMINI_API_KEY
-  - model_name: veo-video-fast
-    litellm_params:
-      model: gemini/veo-3.1-fast-generate-preview
-      api_key: os.environ/GEMINI_API_KEY
+    litellm_params: { model: os.environ/MH_MODEL_IMAGE_GEN }
+  # video via LiteLLM /videos (Gemini/Vertex Veo). The Sora API is shut down — don't use it.
+  - model_name: video-gen
+    litellm_params: { model: os.environ/MH_MODEL_VIDEO_GEN }
+  - model_name: video-gen-fast
+    litellm_params: { model: os.environ/MH_MODEL_VIDEO_GEN_FAST }
 
 litellm_settings:
   drop_params: true

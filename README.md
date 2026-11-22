@@ -13,12 +13,12 @@ sh scripts/setup.sh            # Windows: powershell scripts/setup.ps1
 #  → creates .env (random secrets), litellm/config.yaml, config/routing.yaml, installs git hooks
 #  → prints your login email + password
 
-# add provider keys to .env (ANTHROPIC_API_KEY, GEMINI_API_KEY), then:
 docker compose up -d --build
 ```
 
-Open http://localhost:8080 and log in. Then create the LiteLLM virtual key with a daily budget
-([litellm/README.md](litellm/README.md)) and put it in `.env` as `MHSQUARE_LITELLM_API_KEY`.
+Open http://localhost:8080, log in, and go to **Settings**. Paste your provider API keys, choose a
+model for each role, and set a daily budget. They are stored in `local/llmconfig.env`, which is
+gitignored and never committed. See [litellm/README.md](litellm/README.md).
 
 Health: `curl localhost:8000/api/health/ready`
 
@@ -35,7 +35,8 @@ No test calls a paid provider. Real-provider smoke tests need `MHSQUARE_LIVE_TES
 
 ## Secrets
 
-`.env`, `litellm/config.yaml` and `config/routing.yaml` are gitignored. Only `*.example` files are
+`.env`, `local/llmconfig.env` (provider keys, written by the UI), `litellm/config.yaml` and
+`config/routing.yaml` are gitignored. Only `*.example` files are
 committed. A gitleaks pre-commit hook is mandatory. `scripts/install-hooks.sh` installs it and uses
 the gitleaks binary or Docker.
 

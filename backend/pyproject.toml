@@ -27,7 +27,7 @@ target-version = "py312"
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "B", "UP", "S"]
-ignore = ["S101", "B008"]
+ignore = ["S101", "B008", "E501"]  # line length is enforced by ruff format
 
 [tool.ruff.lint.isort]
 known-third-party = ["alembic"]

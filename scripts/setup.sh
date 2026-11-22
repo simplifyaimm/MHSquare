@@ -8,6 +8,8 @@ rand() { head -c 48 /dev/urandom | base64 | tr -dc 'A-Za-z0-9' | head -c "${1:-4
 copy() { [ -f "$2" ] && echo "keep   $2" || { cp "$1" "$2"; echo "create $2"; }; }
 copy litellm/config.example.yaml litellm/config.yaml
 copy config/routing.example.yaml config/routing.yaml
+mkdir -p local   # llmconfig.env lives here (written by the UI; gitignored)
+chmod 777 local 2>/dev/null || true   # api container (uid 1000) must be able to write it on Linux hosts
 
 if [ -f .env ]; then
   echo "keep   .env"

@@ -25,7 +25,10 @@ class Settings(BaseSettings):
     login_rate_window_s: int = 300
 
     litellm_url: str = "http://litellm:4000"
-    litellm_api_key: str | None = None
+    litellm_api_key: str | None = None  # fallback; normally stored in llmconfig.env
+    litellm_master_key: str | None = None  # key admin only (create/update budget key)
+    llmconfig_path: str = "/mh/local/llmconfig.env"
+    llm_defaults_path: str = "/mh/litellm/llm-defaults.env"
     renderer_url: str = "http://manim-renderer:8000"
     storage_root: str = "/data/storage"
     routing_path: str = "/config/routing.yaml"

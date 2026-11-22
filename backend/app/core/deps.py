@@ -19,9 +19,7 @@ def get_auth_session(request: Request, db: Session = Depends(get_db)) -> AuthSes
     return sess
 
 
-def get_current_user(
-    sess: AuthSession = Depends(get_auth_session), db: Session = Depends(get_db)
-) -> User:
+def get_current_user(sess: AuthSession = Depends(get_auth_session), db: Session = Depends(get_db)) -> User:
     user = db.get(User, sess.user_id)
     if user is None:
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Not authenticated")

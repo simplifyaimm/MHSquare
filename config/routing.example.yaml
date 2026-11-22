@@ -1,17 +1,18 @@
 # Visual-type routing — EXAMPLE (committed). Copy to config/routing.yaml (gitignored).
 # Values are LiteLLM model ALIASES (defined in litellm/config.yaml), never provider model IDs.
+# Which provider/model an alias points to is set in the UI (Settings → AI providers).
 
 visual_types:
   code_animation:
     generator: manim_code          # LLM writes Manim code -> sandbox renders it
-    llm_model: claude-code-gen
-    fallbacks: [claude-code-gen-backup]
+    llm_model: code-llm
+    fallbacks: [code-llm-backup]
   ai_clip:
     generator: video
-    model: veo-video
+    model: video-gen
     keyframe_model: image-gen
     durations_allowed: [4, 6, 8]
-    fallbacks: [veo-video-fast]
+    fallbacks: [video-gen-fast]
   still_image:
     generator: image
     model: image-gen
@@ -21,4 +22,4 @@ visual_types:
   a_roll:
     generator: passthrough         # face-cam footage
 planner:
-  model: claude-planner
+  model: planner-llm
