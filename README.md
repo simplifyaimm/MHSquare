@@ -43,7 +43,8 @@ the gitleaks binary or Docker.
 ## Status
 
 - [x] Phase 1 — Skeleton (compose stack, auth, dark app shell, health, hooks)
-- [ ] Phase 2 — Ingest
+- [x] Settings → AI providers (keys/models/budget from the UI → `local/llmconfig.env`)
+- [x] Phase 2 — Ingest (chunked uploads, −14 LUFS cleanup, WhisperX word timestamps, filler/pause cuts + review, face-cam cuts, final transcript)
 - [ ] Phase 3 — Planning
 - [ ] Phase 4 — Code animations
 - [ ] Phase 5 — Images, keyframes, AI clips

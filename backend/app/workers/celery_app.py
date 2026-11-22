@@ -13,4 +13,6 @@ celery_app.conf.update(
     result_serializer="json",
     accept_content=["json"],
     timezone="UTC",
+    task_routes={"ingest.transcribe": {"queue": "transcribe"}},
+    broker_transport_options={"visibility_timeout": 60 * 60 * 4},  # long transcriptions
 )

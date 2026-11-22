@@ -17,6 +17,7 @@
 | `redis` | Celery broker/results, pub/sub for SSE | core |
 | `litellm` | Only gateway to LLM/image/video providers. Budgets via the virtual key. | core |
 | `manim-renderer` | Renders untrusted LLM-written Manim code | sandbox (`internal: true`) |
+| `transcriber` | WhisperX (CPU) Celery worker, queue `transcribe`. Model weights in the `models` volume. | core (downloads weights once) |
 
 ## Rules enforced by structure
 
@@ -39,3 +40,16 @@ Never expose ports directly. All published ports bind to `127.0.0.1`. To reach m
 - **Cloudflare Tunnel:** `cloudflared tunnel --url http://localhost:8080` (put Cloudflare Access in front)
 
 Set `MHSQUARE_UI_ORIGIN` to the public HTTPS origin.
+
+## Ingest pipeline (phase 2)
+
+```
+upload (chunked, sniffed, ffprobed)
+  └─► worker: cleanup (HPF → gain → limiter, −14 LUFS) + waveform ─► transcriber: raw transcript
+        ─► detect fillers/pauses ─► [cuts_review: UI waveform, toggle, preview]
+        ─► worker: apply frame-snapped cuts to audio (+ face-cam) ─► transcriber: FINAL transcript
+        ─► project.status = ready  (final word timestamps are the source of truth for planning)
+```
+
+Each step writes `project.status` / `ingest_step` before it starts. A failed step shows the error in
+the UI, and **Retry** resumes from that step.

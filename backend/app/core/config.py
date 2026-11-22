@@ -33,6 +33,14 @@ class Settings(BaseSettings):
     storage_root: str = "/data/storage"
     routing_path: str = "/config/routing.yaml"
 
+    # transcription (runs in the `transcriber` container)
+    transcriber: str = "whisperx"  # whisperx | fake
+    whisper_model: str = "small"
+    whisper_device: str = "cpu"
+    whisper_compute_type: str = "int8"
+
+    media_url_ttl_s: int = 60 * 60 * 6
+
     @field_validator("secret_key")
     @classmethod
     def _not_placeholder(cls, v: str) -> str:

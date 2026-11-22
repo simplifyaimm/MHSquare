@@ -29,3 +29,21 @@ Choices the spec left open, the option picked, and why. Newest at the bottom of 
 | 16 | **`local/` is mounted as a directory**, not as a single file. | Single-file bind mounts don't follow atomic rename, and Docker creates a directory when the file is missing. |
 | 17 | **Model aliases are provider-neutral**: `planner-llm`, `code-llm`, `code-llm-backup`, `image-gen`, `video-gen`, `video-gen-fast`. | The provider behind an alias is now a UI choice. |
 | 18 | **Strict validation of values**: keys must be 8–512 printable ASCII characters with no whitespace. Model IDs must match `provider/model` with a safe character set. | Prevents newline/env injection into the file the proxy loads. |
+
+## Phase 2 — Ingest
+
+| # | Decision | Why |
+|---|---|---|
+| 19 | **WhisperX runs in its own `transcriber` container** (backend image `ml` target: CPU torch 2.8 + whisperx 3.8.6, about 5 GB). It consumes only the Celery `transcribe` queue with concurrency 1. Models are cached in the `models` volume. The api/worker images stay slim. | The spec allows either. Keeping torch out of the API image keeps it small, and transcription never starves other tasks. |
+| 20 | **Default Whisper model is `small`** on CPU int8 (`MHSQUARE_WHISPER_MODEL`). Word timing comes from wav2vec2 forced alignment, so it's accurate even with small ASR models. | A good speed/accuracy trade-off on CPU. Use `medium` or `large-v3` if a GPU is added. |
+| 21 | **A filler-laden `initial_prompt`** ("Umm, let me think like, hmm…") is passed to Whisper. | Whisper normally drops disfluencies. With the prompt it kept "Um," and "uh," in the real test. |
+| 22 | **"like" counts as a filler only when set off by punctuation** ("like,") or when it's the first word. | "I like Kafka" must not be cut. |
+| 23 | **Cut shape**: a gap containing fillers is cut from the filler through the dead air, keeping up to `keep_pause_ms` (150) of natural pause next to real speech. Pauses longer than `silence_ms` (600) shrink to 2 × 150 ms. Edges are trimmed fully. Cuts shorter than 80 ms are dropped. | Sounds natural. It never clips real words. |
+| 24 | **Cut boundaries snap to the project frame grid** (e.g. 1/30 s) before they are applied to both the audio and the face-cam. | Per-segment frame rounding would otherwise accumulate audio/video drift over hundreds of cuts. |
+| 25 | **Audio cuts use trim + concat with 4 ms fades** per segment. | Avoids clicks at cut points. |
+| 26 | **The face-cam is cut once into a CFR H.264 CRF 16 intermediate** at the project fps. There's an optional `facecam_offset_ms` for when the camera and the mic didn't start together. | One high-quality encode. The final render happens once in phase 7, per principle 8. |
+| 27 | **Loudness cleanup = high-pass 80 Hz → gain → 4×-oversampled peak limiter at −1.5 dBTP**, iterated with a secant step until within ±0.5 LU of −14 LUFS (max 4 passes, gain capped at ±30 dB). It is not ffmpeg `loudnorm`. | Single- and two-pass loudnorm both undershot speech: −16.8 and −16.3 LUFS on the test clip. Loudnorm can't add the needed gain under the peak ceiling, so it falls back to dynamic mode. The new chain measured −14.0 LUFS / −1.5 dBTP. The cleaner stays pluggable (`media._CLEANERS`). |
+| 28 | **Uploads are resumable chunked PUTs** (`POST /projects/{id}/uploads` → `PUT /uploads/{id}?offset=` in 8 MB chunks → `POST …/complete`), plus single-request multipart `POST /projects/{id}/assets` for small files. Checks: an extension allow-list, a declared-size limit, magic-byte sniffing, ffprobe stream checks, and a stored extension derived from the sniffed type. | Meets the spec's "chunked upload for large files". A resumed upload asks the server for its offset. |
+| 29 | **Signed media URLs**: HMAC of asset id + expiry (6 h TTL), with single-range `Range` support. They don't need the session cookie. | `<audio>`/`<video>` tags can scrub, and links expire. |
+| 30 | **Ingest status is polled by the UI** (every 2 s while busy) in phase 2. SSE arrives in phase 6. | Simplest for now. The state lives in the DB either way. |
+| 31 | **The UI must run vitest from an uppercase `D:\` cwd on Windows.** A lowercase drive letter loads two vitest instances ("failed to find the current suite"). | Known Windows path-casing issue. CI and Docker are unaffected. |

@@ -14,6 +14,10 @@ export default tseslint.config(
     rules: {
       ...reactHooks.configs.recommended.rules,
       "react-refresh/only-export-components": "off",
+      // React-Compiler-only rules (we don't use the compiler); they misfire on imperative
+      // <audio>/<video> control code. Classic rules-of-hooks / exhaustive-deps stay on.
+      "react-hooks/refs": "off",
+      "react-hooks/immutability": "off",
     },
   },
 );
