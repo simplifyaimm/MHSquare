@@ -1,0 +1,24 @@
+# Visual-type routing — EXAMPLE (committed). Copy to config/routing.yaml (gitignored).
+# Values are LiteLLM model ALIASES (defined in litellm/config.yaml), never provider model IDs.
+
+visual_types:
+  code_animation:
+    generator: manim_code          # LLM writes Manim code -> sandbox renders it
+    llm_model: claude-code-gen
+    fallbacks: [claude-code-gen-backup]
+  ai_clip:
+    generator: video
+    model: veo-video
+    keyframe_model: image-gen
+    durations_allowed: [4, 6, 8]
+    fallbacks: [veo-video-fast]
+  still_image:
+    generator: image
+    model: image-gen
+    motion: ken_burns              # slow pan/zoom applied at assembly
+  text_card:
+    generator: template            # rendered locally, no AI cost
+  a_roll:
+    generator: passthrough         # face-cam footage
+planner:
+  model: claude-planner

@@ -1,0 +1,58 @@
+@import "tailwindcss";
+
+/* mhsquare design tokens — dark theme only (v1) */
+:root {
+  --bg: #0b0d12;
+  --surface: #12151c;
+  --surface-2: #1a1f29;
+  --border: #262c38;
+  --text: #e6e9ef;
+  --text-muted: #8a93a6;
+  --accent: #7c5cff;
+  --accent-2: #22d3ee;
+  --success: #22c55e;
+  --warning: #f59e0b;
+  --danger: #ef4444;
+  color-scheme: dark;
+}
+
+@theme inline {
+  --color-bg: var(--bg);
+  --color-surface: var(--surface);
+  --color-surface-2: var(--surface-2);
+  --color-border: var(--border);
+  --color-text: var(--text);
+  --color-muted: var(--text-muted);
+  --color-accent: var(--accent);
+  --color-accent-2: var(--accent-2);
+  --color-success: var(--success);
+  --color-warning: var(--warning);
+  --color-danger: var(--danger);
+  --font-sans: "Inter Variable", "Inter", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: "JetBrains Mono Variable", "JetBrains Mono", ui-monospace, "Cascadia Code", Consolas, monospace;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+}
+
+* {
+  border-color: var(--border);
+}
+
+@keyframes mh-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgb(34 211 238 / 0.5); }
+  50% { box-shadow: 0 0 0 4px rgb(34 211 238 / 0); }
+}
+.animate-mh-pulse {
+  animation: mh-pulse 1.6s ease-in-out infinite;
+}

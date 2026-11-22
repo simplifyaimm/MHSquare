@@ -1,0 +1,42 @@
+# LiteLLM proxy config — EXAMPLE (committed).
+# Copy to litellm/config.yaml (gitignored). Provider keys are ONLY read via os.environ/...
+# Model aliases below are what config/routing.yaml refers to. mhsquare never sees provider names.
+# Check current model IDs in the LiteLLM docs before use: https://docs.litellm.ai/docs/providers
+
+model_list:
+  # --- LLMs ---
+  - model_name: claude-planner
+    litellm_params:
+      model: anthropic/claude-opus-5-5
+      api_key: os.environ/ANTHROPIC_API_KEY
+  - model_name: claude-code-gen
+    litellm_params:
+      model: anthropic/claude-sonnet-5-5
+      api_key: os.environ/ANTHROPIC_API_KEY
+  - model_name: claude-code-gen-backup
+    litellm_params:
+      model: anthropic/claude-haiku-5-5
+      api_key: os.environ/ANTHROPIC_API_KEY
+
+  # --- images ---
+  - model_name: image-gen
+    litellm_params:
+      model: gemini/imagen-4.0-generate-001
+      api_key: os.environ/GEMINI_API_KEY
+
+  # --- video (LiteLLM /videos API; Sora API is shut down — do not use) ---
+  - model_name: veo-video
+    litellm_params:
+      model: gemini/veo-3.1-generate-preview
+      api_key: os.environ/GEMINI_API_KEY
+  - model_name: veo-video-fast
+    litellm_params:
+      model: gemini/veo-3.1-fast-generate-preview
+      api_key: os.environ/GEMINI_API_KEY
+
+litellm_settings:
+  drop_params: true
+
+general_settings:
+  master_key: os.environ/LITELLM_MASTER_KEY
+  database_url: os.environ/DATABASE_URL

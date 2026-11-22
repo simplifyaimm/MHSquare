@@ -1,0 +1,36 @@
+# --- secrets (never commit) ---
+.env
+.env.*
+!.env.example
+litellm/config.yaml
+config/routing.yaml
+*.pem
+*.key
+service_account*.json
+
+# --- runtime data ---
+storage/
+data/
+
+# --- python ---
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+.venv/
+*.egg-info/
+backend/test.db
+
+# --- node ---
+node_modules/
+ui/dist/
+ui/dev-dist/
+ui/coverage/
+ui/test-results/
+ui/playwright-report/
+
+# --- os / editor ---
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/

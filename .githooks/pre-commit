@@ -1,0 +1,24 @@
+#!/usr/bin/env sh
+# Zero-dependency pre-commit hook: gitleaks on staged changes (mandatory), then eslint for UI files.
+# Installed by scripts/install-hooks.sh (sets core.hooksPath=.githooks).
+set -e
+
+ROOT="$(git rev-parse --show-toplevel)"
+GITLEAKS_IMAGE="zricethezav/gitleaks:v8.24.2"
+
+echo "[pre-commit] gitleaks: scanning staged changes"
+if command -v gitleaks >/dev/null 2>&1; then
+  gitleaks git --staged --redact --no-banner --config "$ROOT/.gitleaks.toml" "$ROOT"
+elif command -v docker >/dev/null 2>&1; then
+  # gitleaks needs the repo; mount it read-only.
+  MSYS_NO_PATHCONV=1 docker run --rm -v "$ROOT:/repo:ro" -w /repo "$GITLEAKS_IMAGE" \
+    git --staged --redact --no-banner --config /repo/.gitleaks.toml /repo
+else
+  echo "[pre-commit] ERROR: gitleaks not found and docker unavailable. Install gitleaks." >&2
+  exit 1
+fi
+
+if git diff --cached --name-only | grep -qE '^ui/src/.*\.(ts|tsx)$'; then
+  echo "[pre-commit] eslint (ui)"
+  npm --prefix "$ROOT/ui" run --silent lint
+fi

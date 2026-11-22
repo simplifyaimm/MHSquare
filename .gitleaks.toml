@@ -1,0 +1,10 @@
+title = "mhsquare gitleaks config"
+
+[extend]
+useDefault = true
+
+# Placeholders in committed *.example files are not secrets.
+[allowlist]
+description = "example placeholders"
+regexes = ['''change-me[-\w]*''', '''sk-change-me[-\w]*''']
+paths = ['''(^|/)package-lock\.json$''']

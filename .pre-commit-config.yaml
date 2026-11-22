@@ -1,0 +1,31 @@
+# pre-commit framework config (https://pre-commit.com). `pip install pre-commit && pre-commit install`.
+# No Python on the host? Use the zero-dependency hook instead: scripts/install-hooks.sh
+# (runs gitleaks via its binary or Docker). Either way, gitleaks is mandatory.
+repos:
+  - repo: https://github.com/gitleaks/gitleaks
+    rev: v8.24.2
+    hooks:
+      - id: gitleaks
+
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.11.8
+    hooks:
+      - id: ruff
+        args: [--fix]
+        files: ^backend/
+      - id: ruff-format
+        files: ^backend/
+
+  - repo: local
+    hooks:
+      - id: eslint
+        name: eslint (ui)
+        entry: npm --prefix ui run lint
+        language: system
+        files: ^ui/src/.*\.(ts|tsx)$
+        pass_filenames: false
+      - id: prettier
+        name: prettier (ui)
+        entry: npx --prefix ui prettier --check
+        language: system
+        files: ^ui/src/.*\.(ts|tsx|css)$

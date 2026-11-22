@@ -1,0 +1,152 @@
+name: mhsquare
+
+x-backend-env: &backend-env
+  MHSQUARE_ENV: ${MHSQUARE_ENV:-development}
+  MHSQUARE_DATABASE_URL: postgresql+psycopg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
+  MHSQUARE_REDIS_URL: redis://redis:6379/0
+  MHSQUARE_SECRET_KEY: ${MHSQUARE_SECRET_KEY}
+  MHSQUARE_ADMIN_EMAIL: ${MHSQUARE_ADMIN_EMAIL}
+  MHSQUARE_ADMIN_PASSWORD: ${MHSQUARE_ADMIN_PASSWORD}
+  MHSQUARE_UI_ORIGIN: ${MHSQUARE_UI_ORIGIN:-http://localhost:8080}
+  MHSQUARE_COOKIE_SECURE: ${MHSQUARE_COOKIE_SECURE:-true}
+  MHSQUARE_LITELLM_URL: http://litellm:4000
+  MHSQUARE_LITELLM_API_KEY: ${MHSQUARE_LITELLM_API_KEY}
+  MHSQUARE_RENDERER_URL: http://manim-renderer:8000
+  MHSQUARE_STORAGE_ROOT: /data/storage
+  MHSQUARE_ROUTING_PATH: /config/routing.yaml
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+    volumes:
+      - pg_data:/var/lib/postgresql/data
+      - ./infra/postgres/init.sql:/docker-entrypoint-initdb.d/10-litellm.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    networks: [core]
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    networks: [core]
+    restart: unless-stopped
+
+  litellm:
+    image: ghcr.io/berriai/litellm:main-stable
+    command: ["--config", "/app/config.yaml", "--port", "4000"]
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/litellm
+      LITELLM_MASTER_KEY: ${LITELLM_MASTER_KEY}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      STORE_MODEL_IN_DB: "False"
+    volumes:
+      - ./litellm/config.yaml:/app/config.yaml:ro
+    ports:
+      - "127.0.0.1:${LITELLM_HOST_PORT:-4000}:4000"   # localhost only: for creating virtual keys
+    depends_on:
+      postgres: { condition: service_healthy }
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request;urllib.request.urlopen('http://localhost:4000/health/liveliness')\""]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 30s
+    networks: [core]
+    restart: unless-stopped
+
+  api:
+    build: ./backend
+    environment: *backend-env
+    volumes:
+      - storage:/data/storage
+      - ./config/routing.yaml:/config/routing.yaml:ro
+    ports:
+      - "127.0.0.1:${API_HOST_PORT:-8000}:8000"
+    depends_on:
+      postgres: { condition: service_healthy }
+      redis: { condition: service_healthy }
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:8000/api/health"]
+      interval: 10s
+      timeout: 3s
+      retries: 20
+    networks: [core, sandbox]
+    restart: unless-stopped
+
+  worker:
+    build: ./backend
+    command: ["celery", "-A", "app.workers.celery_app", "worker", "-l", "info", "--concurrency", "4"]
+    environment: *backend-env
+    volumes:
+      - storage:/data/storage
+      - ./config/routing.yaml:/config/routing.yaml:ro
+    depends_on:
+      api: { condition: service_healthy }   # api runs migrations first
+    healthcheck:
+      test: ["CMD-SHELL", "celery -A app.workers.celery_app inspect ping -d celery@$$HOSTNAME --timeout 5"]
+      interval: 30s
+      timeout: 15s
+      retries: 5
+    networks: [core, sandbox]
+    restart: unless-stopped
+
+  manim-renderer:
+    build: ./renderers/manim
+    read_only: true
+    tmpfs:
+      - /tmp:size=512m,mode=1777
+    volumes:
+      - render_out:/out
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    cpus: 2
+    mem_limit: 2g
+    pids_limit: 256
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request;urllib.request.urlopen('http://localhost:8000/health')"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+    networks: [sandbox]   # internal network: no internet egress
+    restart: unless-stopped
+
+  ui:
+    build: ./ui
+    ports:
+      - "127.0.0.1:${UI_HOST_PORT:-8080}:8080"
+    depends_on:
+      api: { condition: service_healthy }
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://127.0.0.1:8080/"]
+      interval: 15s
+      timeout: 3s
+      retries: 5
+    networks: [core]
+    restart: unless-stopped
+
+networks:
+  core: {}
+  sandbox:
+    internal: true
+
+volumes:
+  pg_data: {}
+  redis_data: {}
+  storage: {}
+  render_out: {}
