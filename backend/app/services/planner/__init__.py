@@ -12,6 +12,7 @@ from sqlalchemy.orm import Session
 
 from app.core.db import get_sessionmaker
 from app.llm import client as llm
+from app.llm.errors import LLMError
 from app.models import AssetKind, Project, ProjectStatus, Shot, ShotState, Transcript
 from app.services import routing, style
 from app.services.ingest.pipeline import latest_asset
@@ -260,9 +261,21 @@ def _plan(db: Session, p: Project) -> None:
     total_cost, used = 0.0, cfg.planner.model
     plan: Plan | None = None
     last_err = ""
+    max_tokens = P.output_budget(len(segments))
     for attempt in range(2):  # one retry with the validation errors (spec)
-        text, res = llm.chat(cfg.planner.model, messages, system=P.system_prompt(), fallbacks=cfg.planner.fallbacks,
-                             max_tokens=16000, temperature=0.5)  # fmt: skip
+        try:
+            text, res = llm.chat(cfg.planner.model, messages, system=P.system_prompt(),
+                                 fallbacks=cfg.planner.fallbacks, max_tokens=max_tokens, temperature=0.5,
+                                 timeout=1500)  # fmt: skip
+        except LLMError as e:
+            if "cut off" not in str(e) or attempt:
+                raise
+            # truncated plan: retry once, compact and with more room (counts as the one retry)
+            log.warning("plan attempt 1 truncated at %d tokens; retrying compact", max_tokens)
+            last_err = str(e)
+            max_tokens = min(64000, max_tokens * 2)
+            messages = [{"role": "user", "content": messages[0]["content"] + "\n\n" + P.CONCISE_RETRY}]
+            continue
         total_cost += res.cost_usd
         used = res.alias
         try:

@@ -278,6 +278,24 @@ def test_planner_retries_once_with_validation_errors(fakes, ready_project, monke
     assert data["plan_meta"]["cost_usd"] == 0.04
 
 
+def test_planner_truncated_reply_retries_compact_with_more_tokens(fakes, ready_project, monkeypatch):
+    c, csrf, pid = ready_project
+    seen = []
+
+    def chat(alias, messages, *, system=None, max_tokens=0, **kw):
+        seen.append((max_tokens, messages[-1]["content"]))
+        if len(seen) == 1:
+            raise LLMError(ErrorKind.invalid, f"{alias}: response cut off at max_tokens={max_tokens}")
+        return json.dumps(PLAN), client.CallResult(alias=alias, cost_usd=0.02)
+
+    monkeypatch.setattr(client, "chat", chat)
+    c.post(f"/api/projects/{pid}/plan", headers={"X-CSRF-Token": csrf})
+    data = c.get(f"/api/projects/{pid}/shots").json()
+    assert data["status"] == "planned" and data["plan_meta"]["attempts"] == 2
+    assert seen[0][0] >= 16000 and seen[1][0] == min(64000, seen[0][0] * 2)
+    assert "cut off" in seen[1][1] and len(seen) == 2
+
+
 def test_preview_composites_facecam_circle_and_shorts_canvas(fakes, ready_project):
     """Long-form: face-cam circle bottom-right; shorts: vertical 9:16 proxy with the 3:4 canvas."""
     import uuid as _uuid

@@ -35,6 +35,7 @@ SEGMENTS with exact timestamps, which visual types are available, and whether fa
      splits into three stacked partition cards P0–P2';
    - what is highlighted/emphasised and the calm final frame.
    Keep on-screen text minimal — visuals support the narration, they don't repeat it.
+   Be dense, not wordy: each `prompt` ≤ 90 words, each `notes` ≤ 12 words, entity notes ≤ 8 words.
 10. VISUAL VOCABULARY: list every recurring thing (services, tools, data, people such as X) once in
     style_guide.entities with a fixed icon from the icon library, a colour role and a short label. Shots reference
     them by id in `entities`; every scene then draws them identically. Pick ONE primary_mode for the video and use
@@ -88,6 +89,16 @@ def repair_message(errors: str) -> str:
 {errors}
 
 Return the complete corrected JSON object only."""
+
+
+CONCISE_RETRY = """Your previous answer was too long and got cut off. Plan again, the same video, but much more
+compact: each shot `prompt` ≤ 60 words, `notes` ≤ 8 words, merge adjacent segments into 6–10 s shots where the idea
+continues, and return the JSON only (no whitespace indentation)."""
+
+
+def output_budget(n_segments: int) -> int:
+    """Output tokens for a plan: ~170 tokens per shot (≈ 2 segments each) plus the style guide, with headroom."""
+    return max(16000, min(64000, 4000 + 260 * n_segments))
 
 
 def system_prompt() -> str:
