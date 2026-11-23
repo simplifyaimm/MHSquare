@@ -114,7 +114,8 @@ def ensure_budget_key(daily_usd: float) -> dict[str, Any]:
 
 
 def test_alias(alias: str) -> dict[str, Any]:
-    """Tiny paid call (1 output token) through the proxy to prove an LLM alias + key work."""
+    """Tiny paid call through the proxy to prove an LLM alias + key work. Reasoning models (OpenAI GPT-5,
+    DeepSeek V4) spend hidden tokens before answering, so a 1-token cap fails on them: allow a small margin."""
     try:
         r = httpx.post(
             _url("/chat/completions"),
@@ -122,7 +123,7 @@ def test_alias(alias: str) -> dict[str, Any]:
             json={
                 "model": alias,
                 "messages": [{"role": "user", "content": "Reply with: ok"}],
-                "max_tokens": 1,
+                "max_tokens": 200,
             },
             timeout=60,
         )
