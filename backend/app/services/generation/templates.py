@@ -366,6 +366,8 @@ CSS = """
 .tp-node{position:absolute;transform:translate(-50%,-50%);display:flex;flex-direction:column;align-items:center;
   gap:12px;padding:22px 26px;min-width:220px;text-align:center}
 .tp-node .tp-label{font-size:32px}
+.tp-node.compact{padding:14px 22px;gap:8px;min-width:200px}.tp-node.compact .tp-ic{width:64px;height:64px}
+.tp-node.compact .tp-ic [data-icon]{font-size:36px}.tp-node.compact .tp-label{font-size:28px}
 .tp-node.center{padding:30px 38px;min-width:280px}.tp-node.center .tp-label{font-size:44px}
 .tp-node.center .tp-ic{width:110px;height:110px}.tp-node.center .tp-ic [data-icon]{font-size:62px}
 .tp-led{position:absolute;top:14px;right:14px}
@@ -416,8 +418,8 @@ svg.tp-svg .dot{fill:var(--accent);filter:drop-shadow(0 0 8px var(--accent))}
   0 0 30px var(--accent)}
 .tp-pt .tp-label{font-size:32px}
 .tp-check{display:flex;flex-direction:column;gap:16px;width:min(100%,1100px)}
-.tp-check .tp-item{font-size:34px;padding:22px 30px}
-.tp-check .tp-item [data-icon]{font-size:40px}
+.tp-check{gap:20px}.tp-check .tp-item{font-size:var(--fs,34px);padding:.7em 1em;gap:.6em}
+.tp-check .tp-item [data-icon]{font-size:1.2em}
 .tp-step .tp-ic{width:104px;height:104px}.tp-step .tp-ic [data-icon]{font-size:58px}.tp-step .tp-label{font-size:46px}
 .tp-step .tp-sub{font-size:26px}
 .tp-table{width:min(100%,1400px);border-collapse:separate;border-spacing:0;font:500 32px/1.25 var(--f-body)}
@@ -545,7 +547,7 @@ def build_steps(p: Steps, ctx: Ctx) -> S.Scene:
     return S.Scene(html=_wrap(ctx, p, inner), css=CSS, js=b.js())
 
 
-def _node(ctx: Ctx, s: Spoke, nid: str, cx: float, cy: float, center: bool = False) -> str:
+def _node(ctx: Ctx, s: Spoke, nid: str, cx: float, cy: float, center: bool = False, extra: str = "") -> str:
     lab, ic, cls, _ = _resolve(ctx, s.label, s.icon, s.entity)
     cls = cls or _STATUS_CLASS[s.status]
     led = (
@@ -554,7 +556,7 @@ def _node(ctx: Ctx, s: Spoke, nid: str, cx: float, cy: float, center: bool = Fal
         else ""
     )
     sub = f'<div class="tp-sub" style="font-size:22px">{e(s.sub)}</div>' if s.sub else ""
-    return (f'<div class="tp-card tp-node {"center" if center else ""} {cls}" id="{nid}" '
+    return (f'<div class="tp-card tp-node {"center" if center else extra} {cls}" id="{nid}" '
             f'style="left:{cx:.0f}px;top:{cy:.0f}px"><span class="hlr"></span>{led}<div class="tp-ic">{ic}</div>'
             f'<div class="tp-label">{e(lab)}</div>{sub}</div>')  # fmt: skip
 
@@ -566,18 +568,26 @@ def build_hub(p: Hub, ctx: Ctx) -> S.Scene:
     n = len(p.spokes)
     rx, ry = w * 0.34, h * (0.36 if not ctx.short else 0.4)
     pts = []
-    for k in range(n):
-        a = -math.pi / 2 + 2 * math.pi * k / n if n > 2 else (math.pi if k == 0 else 0.0)
-        if not ctx.short and n in (4, 6):
-            a += math.pi / n  # landscape: avoid straight up/down spokes, they collide with the centre card
-        pts.append((cx + rx * math.cos(a), cy + ry * math.sin(a)))
+    if ctx.short or n > 6:
+        for k in range(n):
+            a = -math.pi / 2 + 2 * math.pi * k / n if n > 2 else (math.pi if k == 0 else 0.0)
+            pts.append((cx + rx * math.cos(a), cy + ry * math.sin(a)))
+    else:  # landscape is too short for a spoke straight above/below the centre card: fan out left and right
+        left, right = n // 2, n - n // 2
+        ry = h / 2 - 105  # spokes may use the full height at the sides
+        for side, m in ((-1, left), (1, right)):
+            ys = [cy] if m == 1 else [cy - ry + 2 * ry * j / (m - 1) for j in range(m)]
+            for py in ys:
+                t = abs(py - cy) / max(ry, 1)  # outer spokes sit a little further in, on an ellipse
+                pts.append((cx + side * rx * (1 - 0.18 * t), py))
     wires = "".join(
         f'<path class="w" id="w{k}" d="M{cx:.0f},{cy:.0f} L{px:.0f},{py:.0f}"/>'
         for k, (px, py) in enumerate(pts)
     )
     svg = f'<svg class="tp-svg" width="{w}" height="{h}" viewBox="0 0 {w} {h}">{wires}</svg>'
     nodes = "".join(
-        _node(ctx, s, f"n{k}", px, py) for k, (s, (px, py)) in enumerate(zip(p.spokes, pts, strict=True))
+        _node(ctx, s, f"n{k}", px, py, extra="compact" if n >= 5 else "")
+        for k, (s, (px, py)) in enumerate(zip(p.spokes, pts, strict=True))
     )
     inner = svg + nodes + _node(ctx, p.center, "hub", cx, cy, center=True)
     b.enter("#hub", b.at(p.center.on, 0, n + 1), "pop")
@@ -868,7 +878,10 @@ def build_checklist(p: Checklist, ctx: Ctx) -> S.Scene:
         f"{_icon(ctx, it.icon or _STATUS_ICON.get(it.status, 'check'))}<span>{e(it.text)}</span></div>"
         for k, it in enumerate(p.items)
     )
-    inner = f'<div class="tp-check">{rows}</div>'
+    n = len(p.items)
+    fs = 44 if n <= 3 else 38 if n <= 5 else 34  # few points → bigger, so the frame is not mostly empty
+    style = f"--fs:{fs}px;width:min(100%,{1300 if n <= 4 else 1100}px)"
+    inner = f'<div class="tp-check" style="{style}">{rows}</div>'
     for k, it in enumerate(p.items):
         b.enter(f"#c{k}", b.at(it.on, k, len(p.items)), "left")
     return S.Scene(html=_wrap(ctx, p, inner), css=CSS, js=b.js())

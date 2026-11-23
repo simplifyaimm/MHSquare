@@ -143,3 +143,21 @@ def test_converter_asks_for_variety_and_maps_content_shape_to_templates():
     sp = templatize.system_prompt()
     assert "VARIETY IS REQUIRED" in sp and "→ timeline" in sp and "→ steps" in sp
     assert "{templates}" not in sp and "{icons}" not in sp
+
+
+@pytest.mark.parametrize("n", [2, 3, 4, 5, 6])
+def test_hub_spokes_never_overlap_the_centre_or_each_other_in_landscape(n):
+    spokes = [{"label": f"spoke {k}", "icon": "bot"} for k in range(n)]
+    sc = T.build("hub", {"title": "t", "center": {"label": "Hub"}, "spokes": spokes}, ctx())
+    pos = {
+        m[0]: (float(m[1]), float(m[2]))
+        for m in re.findall(r'id="(n\d|hub)" style="left:(\d+)px;top:(\d+)px', sc.html)
+    }
+    half = {"hub": (190, 130)}  # rendered half-sizes (centre card, normal and compact spokes)
+    spoke_half = (130, 72) if n >= 5 else (140, 95)
+    ids = list(pos)
+    for i, a in enumerate(ids):
+        for b in ids[i + 1 :]:
+            (ax, ay), (bx, by) = pos[a], pos[b]
+            (aw, ah), (bw, bh) = half.get(a, spoke_half), half.get(b, spoke_half)
+            assert abs(ax - bx) >= aw + bw or abs(ay - by) >= ah + bh, (a, b, pos[a], pos[b])
