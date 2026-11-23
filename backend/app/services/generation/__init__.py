@@ -229,7 +229,7 @@ def write_and_render(db: Session, p: Project, shot: Shot, take: Take, model: str
     lint_issues: list[str] = []
     for _ in range(3):  # first draft · ≤1 technical fix · ≤1 vision-QA polish
         text, res = llm.chat(
-            model, messages, system=system, fallbacks=fallbacks, max_tokens=16000, temperature=0.5
+            model, messages, system=system, fallbacks=fallbacks, max_tokens=SCENE_MAX_TOKENS, temperature=0.5
         )
         cost += res.cost_usd
         take.model = res.alias
@@ -461,6 +461,8 @@ def queue_shot(db: Session, shot: Shot, note: str | None = None, keep_seed: bool
     return take
 
 
+# reasoning models (DeepSeek V4, o-series) spend hidden tokens; 16k cut complex scenes off
+SCENE_MAX_TOKENS = 32000
 INTERRUPTED = "Interrupted (worker or Docker restarted). Generate again."
 
 
