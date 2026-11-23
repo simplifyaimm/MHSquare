@@ -41,8 +41,24 @@ null ONLY when no template can possibly show the idea (rare: under 1 in 5) — a
 Rules: short on-screen text (labels ≤ 4 words, no full sentences except `say`/`sub`), icons only from the icon
 library, `entity` = an id from the vocabulary (it supplies label, icon and colour so a thing looks identical in
 every shot), `on` = a word or 2–3-word phrase that is spoken in THAT shot's narration (the element appears on it).
-Keep the brief's intent; vary templates between neighbouring shots; use `scenario` for the running real-world
-example (persona = its vocabulary entity).
+Keep the brief's intent; use `scenario` for the running real-world example (persona = its vocabulary entity).
+
+Pick by the SHAPE of what is said, not by the shot's mode (a "flow" mode does not mean the flow template):
+- numbered steps, "first… then…", a procedure → steps
+- weeks, phases, a roadmap, history → timeline
+- "X vs Y", before/after, old way/new way → compare
+- one striking number or percentage → stat
+- a list of tips, requirements, things to learn → checklist
+- one thing and its parts/options/tools → hub
+- rows of facts with the same columns → table
+- real code or a config → code
+- requests/messages travelling between 2–4 systems → flow (ONLY then)
+- a named person in a situation → scenario
+
+VARIETY IS REQUIRED: never the same template in more than 2 consecutive shots, and no template in more than about
+a third of the shots in a batch. If a neighbour already used a template, prefer a different one that still fits.
+The direction's preferred templates are a preference, not a limit. `previous` gives the template of the shot just
+before this batch.
 
 Templates:
 {templates}
@@ -56,13 +72,19 @@ Reply with ONLY JSON: {"shots": [{"index": 12, "template": {"name": "compare", "
 def system_prompt() -> str:
     from app.services.generation.icons import names
 
-    return SYSTEM.replace("{templates}", T.catalogue()).replace("{icons}", ", ".join(names()))
+    return SYSTEM.replace("{templates}", T.catalogue()).replace(
+        "{icons}", ", ".join(names())
+    )
 
 
 def candidates(db: Session, p: Project) -> list[Shot]:
     shots = db.scalars(select(Shot).where(Shot.project_id == p.id).order_by(Shot.index))
     return [
-        s for s in shots if s.visual_type == "code_animation" and s.state not in KEEP and not _is_template(s)
+        s
+        for s in shots
+        if s.visual_type == "code_animation"
+        and s.state not in KEEP
+        and not _is_template(s)
     ]
 
 
@@ -83,14 +105,34 @@ def _set_status(db: Session, p: Project, **kv) -> None:
 
 def begin(db: Session, p: Project) -> int:
     n = len(candidates(db, p))
-    _set_status(db, p, status="running", total=n, done=0, converted=0, kept=0, cost_usd=0.0, error=None)
+    _set_status(
+        db,
+        p,
+        status="running",
+        total=n,
+        done=0,
+        converted=0,
+        kept=0,
+        cost_usd=0.0,
+        error=None,
+    )
     _dispatch["run"](str(p.id))
     return n
 
 
-def _user_message(p: Project, batch: list[Shot]) -> str:
+def _template_of(s: Shot | None) -> str | None:
+    try:
+        return (T.parse(s.prompt) or (None,))[0] if s else None
+    except T.TemplateError:
+        return None
+
+
+def _user_message(p: Project, batch: list[Shot], previous: str | None = None) -> str:
     sg = p.style_guide or {}
-    vocab = [{k: e.get(k) for k in ("id", "label", "icon", "color", "note")} for e in sg.get("entities", [])]
+    vocab = [
+        {k: e.get(k) for k in ("id", "label", "icon", "color", "note")}
+        for e in sg.get("entities", [])
+    ]
     shot_ents = sg.get("shot_entities") or {}
     rows = [{"index": s.index, "mode": s.theme, "seconds": round(s.duration_ms / 1000, 1),
              "narration": s.transcript_text, "brief": s.prompt[:1500],
@@ -98,7 +140,8 @@ def _user_message(p: Project, batch: list[Shot]) -> str:
     from app.services.direction import brief
 
     direction = brief(p.direction)
-    return (f"Video: {sg.get('summary', '')}\n{direction}\nVocabulary: {json.dumps(vocab, ensure_ascii=False)}\n\n"
+    return (f"Video: {sg.get('summary', '')}\n{direction}\nVocabulary: {json.dumps(vocab, ensure_ascii=False)}\n"
+            f"previous: {previous or 'none'}\n\n"
             f"Shots:\n{json.dumps(rows, ensure_ascii=False, indent=1)}")  # fmt: skip
 
 
@@ -117,7 +160,9 @@ def _apply(db: Session, batch: list[Shot], reply: dict) -> tuple[int, int]:
             continue
         brief = s.prompt
         s.prompt = T.to_prompt(tpl["name"], tpl["params"])
-        s.notes = (f"{s.notes} · brief: {brief}" if s.notes else f"brief: {brief}")[:2000]
+        s.notes = (f"{s.notes} · brief: {brief}" if s.notes else f"brief: {brief}")[
+            :2000
+        ]
         if s.state in (ShotState.failed, ShotState.paused_budget):
             s.state, s.error = ShotState.planned, None
         converted += 1
@@ -138,7 +183,13 @@ def run(project_id: str) -> None:
         try:
             for i in range(0, len(todo), BATCH):
                 batch = todo[i : i + BATCH]
-                text, res = llm.chat(cfg.planner.model, [{"role": "user", "content": _user_message(p, batch)}],
+                prev = db.scalar(
+                    select(Shot).where(
+                        Shot.project_id == p.id, Shot.index == batch[0].index - 1
+                    )
+                )
+                msg = _user_message(p, batch, _template_of(prev))
+                text, res = llm.chat(cfg.planner.model, [{"role": "user", "content": msg}],
                                      system=system_prompt(), fallbacks=cfg.planner.fallbacks, max_tokens=24000,
                                      temperature=0.3)  # fmt: skip
                 cost += res.cost_usd
@@ -148,7 +199,14 @@ def run(project_id: str) -> None:
                     log.warning("templatize batch unreadable: %s", ex)
                     c, k = 0, len(batch)
                 done, converted, kept = done + len(batch), converted + c, kept + k
-                _set_status(db, p, done=done, converted=converted, kept=kept, cost_usd=round(cost, 4))
+                _set_status(
+                    db,
+                    p,
+                    done=done,
+                    converted=converted,
+                    kept=kept,
+                    cost_usd=round(cost, 4),
+                )
             _set_status(db, p, status="done")
         except LLMError as ex:
             db.rollback()
@@ -160,4 +218,6 @@ def run(project_id: str) -> None:
             log.exception("templatize failed")
             db.rollback()
             p = db.get(Project, pid)
-            _set_status(db, p, status="failed", error=f"{type(ex).__name__}: {ex}"[:500])
+            _set_status(
+                db, p, status="failed", error=f"{type(ex).__name__}: {ex}"[:500]
+            )

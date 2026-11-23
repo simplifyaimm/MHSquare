@@ -46,9 +46,10 @@ class Direction(BaseModel):
     @field_validator("pacing", "density", mode="before")
     @classmethod
     def _choice(cls, v: object, info) -> str:
-        allowed = {"pacing": ("calm", "medium", "fast"), "density": ("sparse", "balanced", "rich")}[
-            info.field_name
-        ]
+        allowed = {
+            "pacing": ("calm", "medium", "fast"),
+            "density": ("sparse", "balanced", "rich"),
+        }[info.field_name]
         s = str(v or "").strip().lower()
         return s if s in allowed else allowed[1]
 
@@ -87,14 +88,16 @@ def _system(profile: StyleProfile) -> str:
     desc = a.get("explain_modes") or {}
     modes = "\n".join(f"- {m}: {desc.get(m, '')}" for m in style.enabled_modes(profile))
     tpls = "\n".join(f"- {t.name}: {t.use}" for t in T.TEMPLATES.values())
-    return SYSTEM.format(max_modes=int(a.get("max_modes_per_video", 3)), modes=modes, templates=tpls)
+    return SYSTEM.format(
+        max_modes=int(a.get("max_modes_per_video", 3)), modes=modes, templates=tpls
+    )
 
 
 def _user(p: Project, profile: StyleProfile, script: str) -> str:
     ps = style.preset(profile, p.content_type)
-    pillar = ((profile.brand or {}).get("pillars", {}).get(p.pillar or "", {}) or {}).get(
-        "label", p.pillar or "—"
-    )
+    pillar = (
+        (profile.brand or {}).get("pillars", {}).get(p.pillar or "", {}) or {}
+    ).get("label", p.pillar or "—")
     return (f"Content type: {ps.get('label', p.content_type)} · pillar: {pillar} · audience: {p.audience_level} · "
             f"topic kind: {p.topic_kind or '—'} (reach = broad audience, authority = depth)\n"
             f"Topic: {p.topic or p.name}\nCreator's style notes: {(p.style_notes or '').strip() or '(none)'}\n\n"
@@ -110,10 +113,16 @@ def normalise(data: dict, profile: StyleProfile) -> Direction:
     except ValidationError as ex:
         raise DirectionError(str(ex)[:500]) from ex
     modes = [m for m in dict.fromkeys(d.modes) if m in enabled]
-    primary = d.primary_mode if d.primary_mode in enabled else (modes[0] if modes else enabled[0])
+    primary = (
+        d.primary_mode
+        if d.primary_mode in enabled
+        else (modes[0] if modes else enabled[0])
+    )
     modes = [primary, *[m for m in modes if m != primary]][:cap]
     tpls = [t for t in dict.fromkeys(d.templates) if t in T.TEMPLATES][:6]
-    return d.model_copy(update={"primary_mode": primary, "modes": modes, "templates": tpls})
+    return d.model_copy(
+        update={"primary_mode": primary, "modes": modes, "templates": tpls}
+    )
 
 
 def recommend(p: Project, profile: StyleProfile, script: str) -> dict:
@@ -137,7 +146,10 @@ def edit(current: dict | None, changes: dict, profile: StyleProfile) -> dict:
     if not base:
         enabled = style.enabled_modes(profile)
         base = {"primary_mode": enabled[0], "modes": [enabled[0]]}
-    d = normalise({**base, **{k: v for k, v in changes.items() if k in Direction.model_fields}}, profile)
+    d = normalise(
+        {**base, **{k: v for k, v in changes.items() if k in Direction.model_fields}},
+        profile,
+    )
     return {**(current or {}), **d.model_dump(), "source": "edited",
             "at": datetime.now(UTC).isoformat(timespec="seconds")}  # fmt: skip
 
@@ -152,7 +164,10 @@ def brief(direction: dict | None) -> str:
         f"{', '.join(direction.get('modes') or [])} (no others).",
     ]
     if direction.get("templates"):
-        lines.append(f"- Preferred scene templates, most-used first: {', '.join(direction['templates'])}.")
+        lines.append(
+            f"- Preferred scene templates, most-used first: {', '.join(direction['templates'])} (others are fine "
+            "where they fit the content better; vary templates between neighbouring shots)."
+        )
     if direction.get("persona"):
         lines.append(
             f"- Carried real-world example: {direction['persona']} (show with the scenario mode/template)."
