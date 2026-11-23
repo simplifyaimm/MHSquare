@@ -67,7 +67,7 @@ def test_text_is_escaped_and_unknown_icons_fall_back():
     ("steps", {"steps": [{"label": "only one"}]}, "steps"),
     ("compare", {"left": {"label": "A"}, "right": {"label": "B"}, "colour": "teal"}, "colour"),
     ("hub", {"center": {}, "spokes": [{"label": "a"}, {"label": "b"}]}, "label or an entity"),
-    ("stat", {"value": "50,000", "label": "x" * 80}, "label"),
+    ("stat", {"label": "policy documents"}, "value"),  # required field missing
 ])  # fmt: skip
 def test_validation_errors_are_specific(name, params, msg):
     with pytest.raises(T.TemplateError, match=msg):
@@ -122,3 +122,16 @@ def test_planner_prompt_lists_every_template():
     sp = system_prompt()
     assert "{templates}" not in sp and all(f"- {n}:" in sp for n in T.TEMPLATES)
     json.loads(json.dumps(T.TEMPLATES["flow"].example))  # examples are plain JSON
+
+
+def test_small_overshoots_are_trimmed_not_rejected():
+    m = T.validate("scenario", {"persona": {"name": "Robin"}, "badge": "Java is more than enough for this",
+                                "items": [{"label": f"item {k}"} for k in range(5)]})  # fmt: skip
+    assert len(m.items) == 3 and len(m.badge) <= 28 and m.badge.endswith("…")
+
+
+def test_flow_accepts_zero_based_actor_numbers():
+    m = T.validate("flow", {"actors": [{"label": "App"}, {"label": "LLM"}],
+                            "messages": [{"from": 0, "to": 1, "label": "prompt"},
+                                         {"from": 1, "to": 0, "label": "answer", "kind": "response"}]})  # fmt: skip
+    assert [(x.src, x.to) for x in m.messages] == [(1, 2), (2, 1)]

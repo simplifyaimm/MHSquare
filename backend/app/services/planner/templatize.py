@@ -34,7 +34,9 @@ def register_dispatch(fn) -> None:
 
 SYSTEM = """You convert shots of an explainer video into SCENE TEMPLATES. Each shot has its narration and a
 designer brief. For each shot pick the template that shows the idea best and fill its params with the EXACT
-on-screen content; return null when no template can show it (a custom scene will be written instead).
+on-screen content. Almost every shot fits one (a person or situation → scenario, a list of points → checklist,
+a process → steps, a comparison → compare, a number → stat, a request → flow, parts of a whole → hub). Return
+null ONLY when no template can possibly show the idea (rare: under 1 in 5) — a custom scene costs far more.
 
 Rules: short on-screen text (labels ≤ 4 words, no full sentences except `say`/`sub`), icons only from the icon
 library, `entity` = an id from the vocabulary (it supplies label, icon and colour so a thing looks identical in

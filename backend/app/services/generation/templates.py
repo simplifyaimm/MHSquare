@@ -37,6 +37,26 @@ class TemplateError(ValueError):
 class _P(BaseModel):
     model_config = {"extra": "forbid"}
 
+    @model_validator(mode="before")
+    @classmethod
+    def _lenient(cls, data: object) -> object:
+        """Models overshoot limits a little (a 4th item, a long badge): trim to the design limits instead of
+        throwing the whole scene away. Required fields, types and enums are still strict."""
+        if not isinstance(data, dict):
+            return data
+        out = dict(data)
+        for name, f in cls.model_fields.items():
+            key = f.alias if f.alias and f.alias in out else name
+            v = out.get(key)
+            mx = next((m.max_length for m in f.metadata if getattr(m, "max_length", None)), None)
+            if mx is None or v is None:
+                continue
+            if isinstance(v, str) and len(v) > mx:
+                out[key] = v[: mx - 1].rstrip(" ,;:-") + "…"
+            elif isinstance(v, list) and len(v) > mx:
+                out[key] = v[:mx]
+        return out
+
 
 class _Named(_P):
     """Shown thing: needs its own label, or a vocabulary `entity` that supplies it."""
@@ -124,6 +144,19 @@ class Message(_P):
 class Flow(Head):
     actors: list[Actor] = Field(min_length=2, max_length=4)
     messages: list[Message] = Field(min_length=1, max_length=6)
+
+    @model_validator(mode="before")
+    @classmethod
+    def _one_based(cls, data: object) -> object:
+        """Actors are numbered from 1; a model that counts from 0 is shifted instead of rejected."""
+        if not isinstance(data, dict) or not isinstance(data.get("messages"), list):
+            return data
+        msgs = [m for m in data["messages"] if isinstance(m, dict)]
+        if any(m.get("from") == 0 or m.get("to") == 0 for m in msgs):
+            data = {**data, "messages": [
+                {**m, "from": int(m.get("from", 0)) + 1, "to": int(m.get("to", 0)) + 1} for m in msgs
+            ]}  # fmt: skip
+        return data
 
 
 class Persona(_P):
