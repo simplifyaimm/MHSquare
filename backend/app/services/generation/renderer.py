@@ -19,7 +19,7 @@ class RenderError(RuntimeError):
 
 
 BUSY_WAIT_S = 1800  # how long a take may wait for a free renderer slot (whole-video batches queue up)
-RENDER_TIMEOUT_S = 900  # one render once it has a slot (renderer caps itself at max(180 s, 0.8 s/frame))
+RENDER_TIMEOUT_S = 1800  # one render once it has a slot (renderer caps itself at max(180 s, 2 s/frame))
 
 
 def _post_render(body: dict, timeout: float) -> httpx.Response:

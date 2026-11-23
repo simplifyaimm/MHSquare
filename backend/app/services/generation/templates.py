@@ -24,7 +24,12 @@ from app.services.generation import scene as S
 
 Status = Literal["none", "good", "bad", "warn"]
 _STATUS_ICON = {"good": "circle-check", "bad": "circle-x", "warn": "triangle-alert"}
-_STATUS_CLASS = {"good": "ent-good", "bad": "ent-growth", "warn": "ent-warn", "none": ""}
+_STATUS_CLASS = {
+    "good": "ent-good",
+    "bad": "ent-growth",
+    "warn": "ent-warn",
+    "none": "",
+}
 
 
 class TemplateError(ValueError):
@@ -48,7 +53,10 @@ class _P(BaseModel):
         for name, f in cls.model_fields.items():
             key = f.alias if f.alias and f.alias in out else name
             v = out.get(key)
-            mx = next((m.max_length for m in f.metadata if getattr(m, "max_length", None)), None)
+            mx = next(
+                (m.max_length for m in f.metadata if getattr(m, "max_length", None)),
+                None,
+            )
             if mx is None or v is None:
                 continue
             if isinstance(v, str) and len(v) > mx:
@@ -90,7 +98,9 @@ class Side(_Named):
 
 
 class Compare(Head):
-    parent: str = Field("", max_length=20)  # optional thing that splits into the two sides ("AI")
+    parent: str = Field(
+        "", max_length=20
+    )  # optional thing that splits into the two sides ("AI")
     left: Side
     right: Side
     winner: Literal["left", "right", "none"] = "none"
@@ -184,9 +194,17 @@ class Highlight(_P):
 
 class Code(Head):
     filename: str = Field(min_length=1, max_length=40)
-    lang: Literal["java", "python", "javascript", "typescript", "yaml", "json", "bash", "sql", "text"] = (
-        "text"
-    )
+    lang: Literal[
+        "java",
+        "python",
+        "javascript",
+        "typescript",
+        "yaml",
+        "json",
+        "bash",
+        "sql",
+        "text",
+    ] = "text"
     lines: list[str] = Field(min_length=1, max_length=14)
     highlights: list[Highlight] = Field(default_factory=list, max_length=3)
     callout: str = Field("", max_length=40)
@@ -199,7 +217,9 @@ class Stat(Head):
     label: str = Field(min_length=1, max_length=40)
     sub: str = Field("", max_length=64)
     icon: str = ""
-    before: str = Field("", max_length=12)  # optional old value shown crossed out → value
+    before: str = Field(
+        "", max_length=12
+    )  # optional old value shown crossed out → value
     before_label: str = Field("", max_length=24)
     on: str = ""
 
@@ -237,7 +257,9 @@ class Ctx:
     zones: list[dict]
     duration: float  # seconds
     words: list[dict]  # [{"w": "Kafka", "t": 1.23}] relative to the shot
-    entities: dict[str, dict] = field(default_factory=dict)  # vocabulary id → {label, icon, color, note}
+    entities: dict[str, dict] = field(
+        default_factory=dict
+    )  # vocabulary id → {label, icon, color, note}
     icons: frozenset[str] = frozenset()
 
     def box(self, header: bool) -> tuple[int, int, int, int]:
@@ -269,9 +291,15 @@ class Beats:
         tokens = [t for t in (_norm(x) for x in phrase.split()) if t]
         if tokens:
             for i in range(len(self.words) - len(tokens) + 1):
-                if all(self.words[i + j].startswith(tok) for j, tok in enumerate(tokens)):
-                    return round(max(0.1, min(d - 1.0, self.ctx.words[i]["t"] - 0.12)), 2)
-        span = max(0.6, min(d * 0.6, d - 1.4))  # unmatched: stagger across the first 60 % of the shot
+                if all(
+                    self.words[i + j].startswith(tok) for j, tok in enumerate(tokens)
+                ):
+                    return round(
+                        max(0.1, min(d - 1.0, self.ctx.words[i]["t"] - 0.12)), 2
+                    )
+        span = max(
+            0.6, min(d * 0.6, d - 1.4)
+        )  # unmatched: stagger across the first 60 % of the shot
         return round(0.25 + span * k / max(1, n), 2)
 
     def add(self, js: str) -> None:
@@ -284,13 +312,19 @@ class Beats:
             "left": "{opacity:0, x:-40, filter:'blur(6px)'}",
             "fade": "{opacity:0}",
         }[kind]
-        self.add(f"tl.from('{sel}', {{...{frm}, duration:.65, ease:'power3.out'}}, {t});")
+        self.add(
+            f"tl.from('{sel}', {{...{frm}, duration:.65, ease:'power3.out'}}, {t});"
+        )
 
     def draw(self, sel: str, t: float, dur: float = 0.7) -> None:
-        self.add(f"tl.from('{sel}', {{drawSVG:'0%', duration:{dur}, ease:'power2.inOut'}}, {t});")
+        self.add(
+            f"tl.from('{sel}', {{drawSVG:'0%', duration:{dur}, ease:'power2.inOut'}}, {t});"
+        )
 
     def focus(self, sel: str, t: float) -> None:
-        self.add(f"tl.to('{sel} > .hlr', {{opacity:1, duration:.45, ease:'power2.out'}}, {t});")
+        self.add(
+            f"tl.to('{sel} > .hlr', {{opacity:1, duration:.45, ease:'power2.out'}}, {t});"
+        )
 
     def dim(self, sel: str, t: float) -> None:
         self.add(f"tl.to('{sel}', {{opacity:.38, duration:.45}}, {t});")
@@ -298,7 +332,11 @@ class Beats:
     def js(self, drift: bool = True) -> str:
         d = self.ctx.duration
         head = f"const tl = gsap.timeline(); window.__scene = tl;\nconst D = {d:.3f};\n"
-        cam = "tl.fromTo('#cam', {scale:1}, {scale:1.025, duration:D, ease:'none'}, 0);\n" if drift else ""
+        cam = (
+            "tl.fromTo('#cam', {scale:1}, {scale:1.025, duration:D, ease:'none'}, 0);\n"
+            if drift
+            else ""
+        )
         return head + cam + "\n".join(self.lines) + "\ntl.set({}, {}, D);"
 
 
@@ -318,7 +356,11 @@ def _resolve(ctx: Ctx, label: str, icon: str, entity: str) -> tuple[str, str, st
     ent = ctx.entities.get(entity or "") or {}
     lab = label or ent.get("label", "")
     ic = icon or ent.get("icon", "")
-    cls = f"ent-{ent['color']}" if ent.get("color") and ent.get("color") != "accent" else ""
+    cls = (
+        f"ent-{ent['color']}"
+        if ent.get("color") and ent.get("color") != "accent"
+        else ""
+    )
     return lab, _icon(ctx, ic), cls, ent.get("note", "")
 
 
@@ -330,7 +372,9 @@ def _header(p: Head) -> str:
     return f'<div class="mh-header" id="hd">{eb}{tt}</div>'
 
 
-def _wrap(ctx: Ctx, p: Head, inner: str, *, center: bool = True, extra: str = "") -> str:
+def _wrap(
+    ctx: Ctx, p: Head, inner: str, *, center: bool = True, extra: str = ""
+) -> str:
     x, y, w, h = ctx.box(bool(p.title or p.eyebrow))
     align = "display:flex;align-items:center;justify-content:center;" if center else ""
     return (
@@ -370,14 +414,15 @@ CSS = """
 .tp-node.center .tp-ic{width:110px;height:110px}.tp-node.center .tp-ic [data-icon]{font-size:62px}
 .tp-led{position:absolute;top:14px;right:14px}
 .tp-actor{position:absolute;transform:translateX(-50%);display:flex;flex-direction:column;align-items:center;gap:12px}
-.tp-actor .tp-label{font-size:30px}
+.tp-actor .tp-label{font-size:38px}
+.tp-actor .tp-ic [data-icon]{font-size:76px}
 .tp-msg{position:absolute;transform:translate(-50%,-100%);padding-bottom:10px;white-space:nowrap;
-  font:500 26px/1 var(--f-body);color:#e8eef7}
+  font:500 32px/1 var(--f-body);color:#e8eef7;padding-bottom:14px}
 .tp-msg.response{color:#a9b6c9}.tp-msg.error{color:var(--growth)}
 svg.tp-svg{position:absolute;left:0;top:0;overflow:visible;pointer-events:none}
-svg.tp-svg .w{fill:none;stroke:color-mix(in srgb,var(--accent) 60%,transparent);stroke-width:3}
+svg.tp-svg .w{fill:none;stroke:color-mix(in srgb,var(--accent) 70%,transparent);stroke-width:4}
 svg.tp-svg .w.response{stroke:#5b6b85}svg.tp-svg .w.error{stroke:var(--growth)}
-svg.tp-svg .life{stroke:#1b2a40;stroke-width:2}
+svg.tp-svg .life{stroke:#24364f;stroke-width:3}
 svg.tp-svg .head{fill:color-mix(in srgb,var(--accent) 80%,transparent)}svg.tp-svg .head.response{fill:#5b6b85}
 svg.tp-svg .head.error{fill:var(--growth)}
 svg.tp-svg .dot{fill:var(--accent);filter:drop-shadow(0 0 8px var(--accent))}
@@ -419,10 +464,10 @@ svg.tp-svg .dot{fill:var(--accent);filter:drop-shadow(0 0 8px var(--accent))}
 .tp-check .tp-item [data-icon]{font-size:40px}
 .tp-step .tp-ic{width:104px;height:104px}.tp-step .tp-ic [data-icon]{font-size:58px}.tp-step .tp-label{font-size:46px}
 .tp-step .tp-sub{font-size:26px}
-.tp-table{width:min(100%,1300px);border-collapse:separate;border-spacing:0;font:500 26px/1.2 var(--f-body)}
-.tp-table th{font:500 22px/1 var(--f-mono);letter-spacing:.14em;text-transform:uppercase;color:var(--accent);
+.tp-table{width:min(100%,1400px);border-collapse:separate;border-spacing:0;font:500 32px/1.25 var(--f-body)}
+.tp-table th{font:500 24px/1 var(--f-mono);letter-spacing:.14em;text-transform:uppercase;color:var(--accent);
   text-align:left;padding:18px 24px;border-bottom:2px solid #1b2a40}
-.tp-table td{padding:18px 24px;color:#dbe4f0;border-bottom:1px solid #16243a}
+.tp-table td{padding:24px 30px;color:#dbe4f0;border-bottom:1px solid #16243a}
 .tp-table td{background-color:rgba(0,0,0,0)}
 .vsc-body .tp-ln{isolation:isolate}
 .vsc-body .lnb{position:absolute;inset:0;z-index:-1;opacity:0;background:rgba(0,122,204,.26)}
@@ -440,7 +485,9 @@ def _side_card(ctx: Ctx, s: Side, sid: str, width: str) -> str:
         f"{_icon(ctx, it.icon or _STATUS_ICON.get(it.status, 'check'))}<span>{e(it.text)}</span></div>"
         for k, it in enumerate(s.items)
     )
-    sub = f'<div class="tp-sub" style="margin-top:6px">{e(s.sub)}</div>' if s.sub else ""
+    sub = (
+        f'<div class="tp-sub" style="margin-top:6px">{e(s.sub)}</div>' if s.sub else ""
+    )
     return (
         f'<div class="tp-card {cls}" id="{sid}" style="width:{width};padding:34px 36px"><span class="hlr"></span>'
         f'<div class="tp-row"><div class="tp-ic">{ic}</div><div><div class="tp-label">{e(lab)}</div>{sub}</div></div>'
@@ -488,7 +535,9 @@ def build_compare(p: Compare, ctx: Ctx) -> S.Scene:
         for j, it in enumerate(side.items):
             b.enter(f"#{sid}i{j}", b.at(it.on, k, n), "left")
             k += 1
-    b.enter("#vs", b.at(p.right.on, 1, n) - 0.1 if p.right.on else b.at("", 1, n), "pop")
+    b.enter(
+        "#vs", b.at(p.right.on, 1, n) - 0.1 if p.right.on else b.at("", 1, n), "pop"
+    )
     if p.verdict or p.winner != "none":
         t = b.at(p.verdict_on, k, n)
         if p.verdict:
@@ -527,13 +576,17 @@ def build_steps(p: Steps, ctx: Ctx) -> S.Scene:
                     f'<div class="tp-label">{e(lab)}</div>{sub}</div>')  # fmt: skip
         parts.append(card)
         if k < n - 1 and not col:
-            parts.append(f'<div class="tp-arrow" id="a{k}">{_icon(ctx, "arrow-right")}</div>')
+            parts.append(
+                f'<div class="tp-arrow" id="a{k}">{_icon(ctx, "arrow-right")}</div>'
+            )
     flex = (
         "flex-direction:column;gap:18px;width:min(100%,980px)"
         if col
         else "flex-direction:row;gap:18px;width:100%"
     )
-    inner = f'<div style="display:flex;align-items:stretch;{flex}">{"".join(parts)}</div>'
+    inner = (
+        f'<div style="display:flex;align-items:stretch;{flex}">{"".join(parts)}</div>'
+    )
     for k, s in enumerate(p.steps):
         t = b.at(s.on, k, n)
         if k and not col:
@@ -544,7 +597,9 @@ def build_steps(p: Steps, ctx: Ctx) -> S.Scene:
     return S.Scene(html=_wrap(ctx, p, inner), css=CSS, js=b.js())
 
 
-def _node(ctx: Ctx, s: Spoke, nid: str, cx: float, cy: float, center: bool = False) -> str:
+def _node(
+    ctx: Ctx, s: Spoke, nid: str, cx: float, cy: float, center: bool = False
+) -> str:
     lab, ic, cls, _ = _resolve(ctx, s.label, s.icon, s.entity)
     cls = cls or _STATUS_CLASS[s.status]
     led = (
@@ -552,7 +607,9 @@ def _node(ctx: Ctx, s: Spoke, nid: str, cx: float, cy: float, center: bool = Fal
         if s.status != "none"
         else ""
     )
-    sub = f'<div class="tp-sub" style="font-size:22px">{e(s.sub)}</div>' if s.sub else ""
+    sub = (
+        f'<div class="tp-sub" style="font-size:22px">{e(s.sub)}</div>' if s.sub else ""
+    )
     return (f'<div class="tp-card tp-node {"center" if center else ""} {cls}" id="{nid}" '
             f'style="left:{cx:.0f}px;top:{cy:.0f}px"><span class="hlr"></span>{led}<div class="tp-ic">{ic}</div>'
             f'<div class="tp-label">{e(lab)}</div>{sub}</div>')  # fmt: skip
@@ -566,9 +623,15 @@ def build_hub(p: Hub, ctx: Ctx) -> S.Scene:
     rx, ry = w * 0.34, h * (0.36 if not ctx.short else 0.4)
     pts = []
     for k in range(n):
-        a = -math.pi / 2 + 2 * math.pi * k / n if n > 2 else (math.pi if k == 0 else 0.0)
+        a = (
+            -math.pi / 2 + 2 * math.pi * k / n
+            if n > 2
+            else (math.pi if k == 0 else 0.0)
+        )
         if not ctx.short and n in (4, 6):
-            a += math.pi / n  # landscape: avoid straight up/down spokes, they collide with the centre card
+            a += (
+                math.pi / n
+            )  # landscape: avoid straight up/down spokes, they collide with the centre card
         pts.append((cx + rx * math.cos(a), cy + ry * math.sin(a)))
     wires = "".join(
         f'<path class="w" id="w{k}" d="M{cx:.0f},{cy:.0f} L{px:.0f},{py:.0f}"/>'
@@ -576,7 +639,8 @@ def build_hub(p: Hub, ctx: Ctx) -> S.Scene:
     )
     svg = f'<svg class="tp-svg" width="{w}" height="{h}" viewBox="0 0 {w} {h}">{wires}</svg>'
     nodes = "".join(
-        _node(ctx, s, f"n{k}", px, py) for k, (s, (px, py)) in enumerate(zip(p.spokes, pts, strict=True))
+        _node(ctx, s, f"n{k}", px, py)
+        for k, (s, (px, py)) in enumerate(zip(p.spokes, pts, strict=True))
     )
     inner = svg + nodes + _node(ctx, p.center, "hub", cx, cy, center=True)
     b.enter("#hub", b.at(p.center.on, 0, n + 1), "pop")
@@ -591,28 +655,38 @@ def build_flow(p: Flow, ctx: Ctx) -> S.Scene:
     b = Beats(ctx)
     x, y, w, h = ctx.box(bool(p.title or p.eyebrow))
     na = len(p.actors)
-    xs = [w * (k + 0.5) / na for k in range(na)]
-    actor_h = 200
-    top = actor_h + 30
+    span = (
+        0.62 if na == 2 else 0.8 if na == 3 else 0.9
+    )  # two actors shouldn't sit at the far edges
+    xs = [w * (0.5 - span / 2 + span * (k + 0.5) / na) for k in range(na)]
+    actor_h = 230
     nm = len(p.messages)
-    step = min(110.0, (h - top - 20) / max(1, nm))
+    # fewer messages → more room each; then centre the whole diagram vertically in the box
+    step = max(110.0, min(190.0, (h - actor_h - 40) / (nm + 0.4)))
+    total = actor_h + 30 + step * (nm + 0.25)
+    oy = max(0.0, (h - total) / 2)
+    top = oy + actor_h + 30
     parts, svg = [], []
     for k, a in enumerate(p.actors):
         lab, ic, cls, _ = _resolve(ctx, a.label, a.icon, a.entity)
-        parts.append(f'<div class="tp-actor {cls}" id="ac{k}" style="left:{xs[k]:.0f}px;top:0">'
-                     f'<div class="tp-ic" style="width:104px;height:104px">{ic}</div>'
+        parts.append(f'<div class="tp-actor {cls}" id="ac{k}" style="left:{xs[k]:.0f}px;top:{oy:.0f}px">'
+                     f'<div class="tp-ic" style="width:136px;height:136px;border-radius:28px">{ic}</div>'
                      f'<div class="tp-label">{e(lab)}</div></div>')  # fmt: skip
-        svg.append(f'<line class="life" id="lf{k}" x1="{xs[k]:.0f}" y1="{actor_h:.0f}" x2="{xs[k]:.0f}" '
-                   f'y2="{top + step * nm:.0f}"/>')  # fmt: skip
+        svg.append(f'<line class="life" id="lf{k}" x1="{xs[k]:.0f}" y1="{oy + actor_h:.0f}" x2="{xs[k]:.0f}" '
+                   f'y2="{top + step * (nm + 0.1):.0f}"/>')  # fmt: skip
     for k, m in enumerate(p.messages):
         a, c = xs[min(m.src, na) - 1], xs[min(m.to, na) - 1]
         yy = top + step * (k + 0.75)
         sgn = 1 if c >= a else -1
-        x2 = c - sgn * 14
-        svg.append(f'<path class="w {m.kind}" id="m{k}" d="M{a:.0f},{yy:.0f} L{x2:.0f},{yy:.0f}"/>')
-        svg.append(f'<polygon class="head {m.kind}" id="h{k}" points="{c:.0f},{yy:.0f} {x2 - sgn * 4:.0f},'
-                   f'{yy - 10:.0f} {x2 - sgn * 4:.0f},{yy + 10:.0f}"/>')  # fmt: skip
-        svg.append(f'<circle class="dot" id="d{k}" cx="{a:.0f}" cy="{yy:.0f}" r="8" style="opacity:0"/>')
+        x2 = c - sgn * 18
+        svg.append(
+            f'<path class="w {m.kind}" id="m{k}" d="M{a:.0f},{yy:.0f} L{x2:.0f},{yy:.0f}"/>'
+        )
+        svg.append(f'<polygon class="head {m.kind}" id="h{k}" points="{c:.0f},{yy:.0f} {x2 - sgn * 6:.0f},'
+                   f'{yy - 13:.0f} {x2 - sgn * 6:.0f},{yy + 13:.0f}"/>')  # fmt: skip
+        svg.append(
+            f'<circle class="dot" id="d{k}" cx="{a:.0f}" cy="{yy:.0f}" r="10" style="opacity:0"/>'
+        )
         parts.append(f'<div class="tp-msg {m.kind}" id="ml{k}" style="left:{(a + c) / 2:.0f}px;top:{yy:.0f}px">'
                      f'{_icon(ctx, "x") + " " if m.kind == "error" else ""}{e(m.label)}</div>')  # fmt: skip
     inner = (
@@ -639,7 +713,11 @@ def build_scenario(p: Scenario, ctx: Ctx) -> S.Scene:
     ent = ctx.entities.get(p.persona.entity or "") or {}
     name = p.persona.name or ent.get("label", "")
     role = p.persona.role or ent.get("note", "")
-    icon = p.persona.icon if p.persona.icon != "user-round" or not ent.get("icon") else ent["icon"]
+    icon = (
+        p.persona.icon
+        if p.persona.icon != "user-round" or not ent.get("icon")
+        else ent["icon"]
+    )
     # persona anchor: same place in every scenario shot (x ≈ 20 % of the stage)
     px = (0.5 if ctx.short else 0.2) * ctx.w - x
     py = h * (0.3 if ctx.short else 0.52)
@@ -707,7 +785,9 @@ _KW = {
     "sql": "SELECT FROM WHERE JOIN ON GROUP BY ORDER INSERT INTO VALUES UPDATE SET DELETE CREATE TABLE AND OR AS LIMIT",
 }  # fmt: skip
 _KW["typescript"] = _KW["javascript"] + " interface type implements"
-_TOKEN = re.compile(r'(//.*$|#.*$|"[^"]*"|\'[^\']*\'|\b\d[\d_.]*\b|@\w+|\b[A-Za-z_]\w*\b)')
+_TOKEN = re.compile(
+    r'(//.*$|#.*$|"[^"]*"|\'[^\']*\'|\b\d[\d_.]*\b|@\w+|\b[A-Za-z_]\w*\b)'
+)
 
 
 def _highlight_line(line: str, lang: str) -> str:
@@ -741,12 +821,18 @@ def _highlight_line(line: str, lang: str) -> str:
 def build_code(p: Code, ctx: Ctx) -> S.Scene:
     b = Beats(ctx)
     x, y, w, h = ctx.box(bool(p.title or p.eyebrow))
-    fs = 30 if len(p.lines) <= 8 else 26 if len(p.lines) <= 11 else 24  # fewer lines → bigger, readable code
+    fs = (
+        30 if len(p.lines) <= 8 else 26 if len(p.lines) <= 11 else 24
+    )  # fewer lines → bigger, readable code
     win_w = w if ctx.short or not p.callout else w * 0.66
     kinds = {k: hl.kind for hl in p.highlights for k in hl.lines}
     body = "".join(
         f'<span class="ln tp-ln" id="cl{k}">'
-        + (f'<span class="lnb {kinds[k + 1]}" id="lb{k}"></span>' if k + 1 in kinds else "")
+        + (
+            f'<span class="lnb {kinds[k + 1]}" id="lb{k}"></span>'
+            if k + 1 in kinds
+            else ""
+        )
         + f"{_highlight_line(ln.rstrip(), p.lang)}</span>"
         for k, ln in enumerate(p.lines)
     )
@@ -754,7 +840,9 @@ def build_code(p: Code, ctx: Ctx) -> S.Scene:
            f"{e(p.filename)} — Visual Studio Code</span><span class=\"ctl\">—</span><span class=\"ctl\">☐</span>"
            f'<span class="ctl">✕</span></div><div class="vsc-tabs"><span class="vsc-tab">{e(p.filename)}</span></div>'
            f'<div class="vsc-body" style="font-size:{fs}px">{body}</div><div class="vsc-status">{e(p.lang.upper())}  ·  UTF-8</div></div>')  # fmt: skip
-    parts = [f'<div style="position:absolute;left:0;top:50%;transform:translateY(-50%)">{win}</div>']
+    parts = [
+        f'<div style="position:absolute;left:0;top:50%;transform:translateY(-50%)">{win}</div>'
+    ]
     line_h, body_top = fs * 1.65, 40 + 40 + 16
     win_h = body_top + line_h * len(p.lines) + 16 + 30
     if p.callout:
@@ -790,7 +878,11 @@ _NUM = re.compile(r"^([^\d]*)([\d][\d,]*\.?\d*)(.*)$")
 
 def build_stat(p: Stat, ctx: Ctx) -> S.Scene:
     b = Beats(ctx)
-    icon = f'<div class="tp-ic" style="margin:0 auto 10px">{_icon(ctx, p.icon)}</div>' if p.icon else ""
+    icon = (
+        f'<div class="tp-ic" style="margin:0 auto 10px">{_icon(ctx, p.icon)}</div>'
+        if p.icon
+        else ""
+    )
     big = f'<div class="tp-big" id="v">{e(p.value)}</div>'
     if p.before:
         old = (f'<div style="display:flex;flex-direction:column;align-items:center;gap:8px" id="old">'
@@ -844,7 +936,11 @@ def build_timeline(p: Timeline, ctx: Ctx) -> S.Scene:
                      f'top:{ly - 3:.0f}px"></div>')  # fmt: skip
     for k, pt in enumerate(p.points):
         state = "cur" if k + 1 == cur else ("done" if k + 1 < cur else "")
-        sub = f'<div class="tp-sub" style="font-size:22px">{e(pt.sub)}</div>' if pt.sub else ""
+        sub = (
+            f'<div class="tp-sub" style="font-size:22px">{e(pt.sub)}</div>'
+            if pt.sub
+            else ""
+        )
         parts.append(f'<div class="tp-pt {state}" id="p{k}" style="left:{xs[k]:.0f}px;top:{ly - 15:.0f}px">'
                      f'<div class="dotc"></div><div class="tp-label">{e(pt.label)}</div>{sub}</div>')  # fmt: skip
     inner = "".join(parts)
@@ -874,7 +970,9 @@ def build_table(p: Table, ctx: Ctx) -> S.Scene:
     ncol = len(p.columns)
     head = "".join(f"<th>{e(c)}</th>" for c in p.columns)
     body = "".join(
-        f'<tr id="r{k}">' + "".join(f"<td>{e(c)}</td>" for c in (r + [""] * ncol)[:ncol]) + "</tr>"
+        f'<tr id="r{k}">'
+        + "".join(f"<td>{e(c)}</td>" for c in (r + [""] * ncol)[:ncol])
+        + "</tr>"
         for k, r in enumerate(p.rows)
     )
     inner = f'<table class="tp-table"><thead id="th"><tr>{head}</tr></thead><tbody>{body}</tbody></table>'
@@ -955,7 +1053,9 @@ def parse(prompt: str) -> tuple[str, dict] | None:
     try:
         params = json.loads(rest.strip() or "{}")
     except json.JSONDecodeError as ex:
-        raise TemplateError(f"template {name}: params are not valid JSON ({ex})") from ex
+        raise TemplateError(
+            f"template {name}: params are not valid JSON ({ex})"
+        ) from ex
     return name, params
 
 
@@ -966,11 +1066,16 @@ def to_prompt(name: str, params: dict) -> str:
 def validate(name: str, params: dict) -> BaseModel:
     t = TEMPLATES.get(name)
     if t is None:
-        raise TemplateError(f"unknown template '{name}' (use one of: {', '.join(TEMPLATES)})")
+        raise TemplateError(
+            f"unknown template '{name}' (use one of: {', '.join(TEMPLATES)})"
+        )
     try:
         return t.model.model_validate(params)
     except ValidationError as ex:
-        errs = "; ".join(f"{'.'.join(str(x) for x in er['loc'])}: {er['msg']}" for er in ex.errors()[:6])
+        errs = "; ".join(
+            f"{'.'.join(str(x) for x in er['loc'])}: {er['msg']}"
+            for er in ex.errors()[:6]
+        )
         raise TemplateError(f"template {name}: {errs}") from ex
 
 

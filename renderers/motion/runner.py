@@ -23,7 +23,7 @@ VENDOR = Path("/opt/runner/vendor")
 OUT = Path("/out")
 MAX_CONCURRENT = 2
 RENDER_TIMEOUT_S = 180
-SECONDS_PER_FRAME = 0.8  # ceiling for runaway scenes; a healthy render is far below this
+SECONDS_PER_FRAME = 2.0  # ceiling for runaway scenes; a healthy render is ~0.3 s/frame, ~1 s/frame with both slots busy
 _slots = threading.Semaphore(MAX_CONCURRENT)
 _JOB = re.compile(r"^[a-zA-Z0-9_-]{6,64}$")
 
