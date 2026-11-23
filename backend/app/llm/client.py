@@ -199,14 +199,20 @@ def provider_down(err: LLMError) -> bool:
     return err.kind in (ErrorKind.budget, ErrorKind.invalid) and any(s in m for s in _PROVIDER_DOWN)
 
 
+_NO_TEMPERATURE: set[str] = set()  # aliases whose current model rejects a custom temperature
+
+
 def _call(path: str, body: dict, aliases: list[str], timeout: float) -> tuple[str, httpx.Response]:
     """POST with retry/backoff; on persistent transient errors move to the next alias."""
     last: LLMError | None = None
     for alias in aliases:
         rate_tries = transient_tries = 0
         while True:
+            b = {**body, "model": alias}
+            if alias in _NO_TEMPERATURE:
+                b.pop("temperature", None)
             try:
-                resp = _post_once(path, {**body, "model": alias}, timeout)
+                resp = _post_once(path, b, timeout)
                 if resp.status_code < 400:
                     return alias, resp
                 err = LLMError(classify(resp.status_code, _error_message(resp)), _error_message(resp)[:2000],
@@ -214,6 +220,9 @@ def _call(path: str, body: dict, aliases: list[str], timeout: float) -> tuple[st
             except LLMError as e:
                 err = e
             last = err
+            if "temperature" in b and err.kind == ErrorKind.invalid and "temperature" in str(err).lower():
+                _NO_TEMPERATURE.add(alias)  # e.g. GPT-5 / o-series: only the default temperature is allowed
+                continue
             if err.kind == ErrorKind.rate_limit and rate_tries < RATE_LIMIT_TRIES - 1:
                 rate_tries += 1
                 _sleep(min(60, 2**rate_tries) + _random.uniform(0, 1))  # noqa: S311

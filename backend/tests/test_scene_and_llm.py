@@ -152,6 +152,24 @@ def test_cut_off_reply_moves_to_the_next_model_and_counts_its_cost(monkeypatch, 
         client.chat("code-llm", [])
 
 
+def test_model_that_rejects_temperature_is_retried_without_it(monkeypatch, calls):
+    client._NO_TEMPERATURE.discard("code-llm")
+    bodies = []
+
+    def post(url, headers, json, timeout):
+        bodies.append(dict(json))
+        if "temperature" in json:
+            return _resp(400, {"error": {"message": "Unsupported value: 'temperature' does not support 0.3"}})
+        return _ok("fine")
+
+    monkeypatch.setattr(httpx, "post", post)
+    assert client.chat("code-llm", [], temperature=0.3)[0] == "fine"
+    # remembered: no failing call the second time
+    assert client.chat("code-llm", [], temperature=0.3)[0] == "fine"
+    assert ["temperature" in b for b in bodies] == [True, False, False]
+    client._NO_TEMPERATURE.discard("code-llm")
+
+
 def test_every_provider_down_pauses_instead_of_failing(monkeypatch, calls):
     def post(url, headers, json, timeout):
         calls.append(json["model"])
