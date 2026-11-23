@@ -355,7 +355,7 @@ class DirectionEdit(BaseModel):
     primary_mode: str | None = None
     modes: list[str] | None = None
     templates: list[str] | None = None
-    persona: str | None = Field(None, max_length=60)
+    persona: str | None = Field(None, max_length=120)
     hook: str | None = Field(None, max_length=240)
     pacing: Literal["calm", "medium", "fast"] | None = None
     density: Literal["sparse", "balanced", "rich"] | None = None

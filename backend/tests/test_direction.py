@@ -77,3 +77,11 @@ def test_brief_is_empty_without_direction():
     assert DIR.brief(None) == "" and DIR.brief({}) == ""
     b = DIR.brief({"primary_mode": "flow", "modes": ["flow"], "templates": ["flow", "steps"], "hook": "x"})
     assert "Primary explanation mode: flow" in b and "flow, steps" in b
+
+
+def test_wordy_or_odd_answers_are_trimmed_not_rejected(ready_project):  # noqa: F811
+    with get_sessionmaker()() as db:
+        d = DIR.normalise({"primary_mode": "tech", "modes": ["tech"], "persona": "X, " + "a Java developer " * 20,
+                           "hook": "h" * 400, "pacing": "Brisk", "density": "RICH"}, style.active(db))  # fmt: skip
+    assert len(d.persona) <= 120 and d.persona.endswith("…") and len(d.hook) <= 240
+    assert d.pacing == "medium" and d.density == "rich"

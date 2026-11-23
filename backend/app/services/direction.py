@@ -28,13 +28,29 @@ class Direction(BaseModel):
     modes: list[str] = Field(min_length=1)  # trimmed to the brand cap in normalise()
     templates: list[str] = Field(default_factory=list)  # preferred, most-used first
     persona: str = Field(
-        "", max_length=60
+        "", max_length=120
     )  # the carried real-world example ("Robin, a Java developer"), or ""
     hook: str = Field("", max_length=240)  # the opening visual idea (first 15 s)
     pacing: Literal["calm", "medium", "fast"] = "medium"
     density: Literal["sparse", "balanced", "rich"] = "balanced"
     reasons: list[str] = Field(default_factory=list)
     avoid: list[str] = Field(default_factory=list)
+
+    @field_validator("persona", "hook", mode="before")
+    @classmethod
+    def _clip(cls, v: object, info) -> str:  # a wordy answer is trimmed, not rejected
+        limit = 120 if info.field_name == "persona" else 240
+        s = " ".join(str(v or "").split())
+        return s if len(s) <= limit else s[: limit - 1].rstrip(" ,;") + "…"
+
+    @field_validator("pacing", "density", mode="before")
+    @classmethod
+    def _choice(cls, v: object, info) -> str:
+        allowed = {"pacing": ("calm", "medium", "fast"), "density": ("sparse", "balanced", "rich")}[
+            info.field_name
+        ]
+        s = str(v or "").strip().lower()
+        return s if s in allowed else allowed[1]
 
     @field_validator("reasons", "avoid")
     @classmethod
