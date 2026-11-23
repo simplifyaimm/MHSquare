@@ -32,6 +32,7 @@ from app.services import routing, style
 from app.services.generation import prompts as GP
 from app.services.generation import renderer
 from app.services.generation import scene as S
+from app.services.generation import templates as T
 from app.services.generation.icons import runtime_js as icon_runtime
 from app.services.generation.lint import lint as lint_scene
 from app.services.ingest.pipeline import latest_asset
@@ -367,6 +368,26 @@ def text_card_scene(shot: Shot) -> S.Scene:
     return S.Scene(html=html, css="", js=js)
 
 
+def template_ctx(db: Session, p: Project, shot: Shot) -> T.Ctx:
+    from app.services.generation.icons import icons
+
+    cv = style.canvas(style.active(db), p)
+    ents = {e["id"]: e for e in (p.style_guide or {}).get("entities", [])}
+    return T.Ctx(w=cv.stage_w, h=cv.stage_h, short=cv.is_short, zones=cv.safe_zones,
+                 duration=shot.duration_ms / 1000, words=shot_words(db, shot), entities=ents,
+                 icons=frozenset(icons()))  # fmt: skip
+
+
+def template_scene(db: Session, p: Project, shot: Shot) -> S.Scene:
+    parsed = T.parse(shot.prompt)
+    if parsed is None:
+        raise GenerationError("not a template shot")
+    try:
+        return T.build(parsed[0], parsed[1], template_ctx(db, p, shot))
+    except T.TemplateError as ex:
+        raise GenerationError(f"{ex} — fix the shot's JSON and generate again") from ex
+
+
 # ---------------------------------------------------------------- a_roll (passthrough)
 
 
@@ -513,7 +534,15 @@ def run_take(take_id: str) -> None:
         try:
             with tempfile.TemporaryDirectory(dir=_work_root()) as wd:
                 work = Path(wd)
-                if route.generator == "html_animation":
+                if route.generator == "html_animation" and T.parse(shot.prompt):
+                    take.model = "template:" + T.parse(shot.prompt)[0]  # deterministic, no AI call
+                    sc = template_scene(db, p, shot)
+                    take.code = json.dumps(sc.as_dict())
+                    r = _render_scene(p, sc, "tech", {}, shot.duration_ms, probe="warn")
+                    take.meta = {**(take.meta or {}), "template": take.model[9:], "render_s": r.info.get("render_s"),
+                                 "layout_warnings": r.info.get("layout_warnings", [])}  # fmt: skip
+                    video, thumb = r.video, r.thumb
+                elif route.generator == "html_animation":
                     video, thumb = write_and_render(
                         db, p, shot, take, route.model, route.fallbacks, brief=shot.prompt
                     )

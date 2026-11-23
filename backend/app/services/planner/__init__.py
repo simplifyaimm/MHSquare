@@ -15,6 +15,7 @@ from app.llm import client as llm
 from app.llm.errors import LLMError
 from app.models import AssetKind, Project, ProjectStatus, Shot, ShotState, Transcript
 from app.services import routing, style
+from app.services.generation import templates
 from app.services.ingest.pipeline import latest_asset
 from app.services.planner import prompt as P
 from app.services.storage import get_storage
@@ -79,6 +80,13 @@ class Card(BaseModel):
         return "\n".join(x for x in lines if x)
 
 
+class TemplateUse(BaseModel):
+    """A code_animation shot rendered from a hand-designed scene template (no per-shot AI call)."""
+
+    name: str
+    params: dict
+
+
 class PlannedShot(BaseModel):
     from_segment: int = Field(ge=1)
     to_segment: int = Field(ge=1)
@@ -90,6 +98,7 @@ class PlannedShot(BaseModel):
     uses_character: bool = False
     characters: list[str] = Field(default_factory=list)
     card: Card | None = None  # required for text_card
+    template: TemplateUse | None = None  # code_animation: a scene template filled in (preferred)
     notes: str = ""
 
 
@@ -154,6 +163,14 @@ def validate_plan(data: dict, n_segments: int, allowed: list[str], has_facecam: 
             errors.append(f"shot {i}: text_card needs a `card` object with the exact on-screen text")
         if s.card and len(s.card.headline.split()) > 9:
             errors.append(f"shot {i}: card headline has more than 9 words")
+        if s.template is not None:
+            if s.visual_type != "code_animation":
+                errors.append(f"shot {i}: `template` is only for code_animation shots")
+            else:
+                try:
+                    templates.validate(s.template.name, s.template.params)
+                except templates.TemplateError as ex:
+                    errors.append(f"shot {i}: {ex}")
         expected = s.to_segment + 1
     if expected != n_segments + 1:
         errors.append(f"shots end at segment {expected - 1}, but there are {n_segments} segments")
@@ -206,9 +223,12 @@ def build_shots(plan: Plan, segments: list[dict], words: list[dict], duration_ms
             if i == len(plan.shots) - 1
             else segments[plan.shots[i + 1].from_segment - 1]["start_ms"]
         )
-        base = s.model_dump(exclude={"from_segment", "to_segment", "card"})
+        base = s.model_dump(exclude={"from_segment", "to_segment", "card", "template"})
         if s.visual_type == "text_card" and s.card:  # canonical, editable, rendered verbatim
             base["prompt"] = s.card.as_prompt()
+        if s.visual_type == "code_animation" and s.template:  # deterministic scene; the brief stays as a note
+            base["prompt"] = templates.to_prompt(s.template.name, s.template.params)
+            base["notes"] = (f"{s.notes} · brief: {s.prompt}" if s.notes else f"brief: {s.prompt}")[:2000]
         if s.visual_type == "ai_clip" and end - start > MAX_AI_CLIP_MS:
             parts = -(-(end - start) // MAX_AI_CLIP_MS)
             step = (end - start) // parts

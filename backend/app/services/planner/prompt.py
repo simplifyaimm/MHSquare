@@ -49,6 +49,15 @@ SEGMENTS with exact timestamps, which visual types are available, and whether fa
     eyebrow (optional mono tag, ≤ 4 words, e.g. "02 · THE ANSWER"), headline (≤ 9 words, the line that matters),
     sub (optional, ≤ 10 words), highlight (0–2 words of the headline/sub shown in the accent colour).
     Its `prompt` is a one-line note (e.g. "chapter card"); never put instructions where text is expected.
+15. SCENE TEMPLATES FIRST. Most code_animation shots fit a hand-designed template; give those shots a `template`
+    object {"name": …, "params": {…}} with the EXACT on-screen content (they render with no further AI work and
+    always look on-brand). Only leave `template` out when no template can show the idea — then the `prompt` brief
+    is used to write a custom scene (expensive; aim for ≤ 20% of code_animation shots). Rules for params: short
+    on-screen text (labels ≤ 4 words), icons only from the icon library, `entity` = a vocabulary id (draws it
+    identically), `on` = a word or short phrase spoken in that shot (the element appears on it). Vary templates
+    between neighbouring shots. Use the `scenario` template for the running real-world example.
+    Templates:
+{templates}
 
 ## Output
 Reply with ONLY a JSON object (no prose) of this shape:
@@ -63,7 +72,10 @@ Reply with ONLY a JSON object (no prose) of this shape:
   },
   "shots": [
     {"from_segment": 1, "to_segment": 2, "visual_type": "code_animation", "theme": "tech", "entities": ["kafka"],
-     "prompt": "...", "depends_on_previous": false, "uses_character": false, "characters": [],
+     "prompt": "one-line brief", "depends_on_previous": false, "uses_character": false, "characters": [],
+     "template": {"name": "hub", "params": {"center": {"entity": "kafka", "label": "Kafka"}, "spokes": [
+       {"label": "Orders", "icon": "shopping-cart", "on": "orders"}, {"label": "Email", "icon": "mail",
+       "status": "bad", "on": "email"}]}},
      "notes": "why this visual"},
     {"from_segment": 3, "to_segment": 3, "visual_type": "text_card", "theme": "tech", "entities": [],
      "prompt": "chapter card", "card": {"eyebrow": "02 · THE ANSWER", "headline": "Java isn't baggage",
@@ -113,5 +125,6 @@ def output_budget(n_segments: int) -> int:
 
 def system_prompt() -> str:
     from app.services.generation.icons import names
+    from app.services.generation.templates import catalogue
 
-    return SYSTEM.replace("{icons}", ", ".join(names()))
+    return SYSTEM.replace("{icons}", ", ".join(names())).replace("{templates}", catalogue())

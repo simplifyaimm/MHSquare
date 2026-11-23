@@ -279,6 +279,48 @@ def test_planner_retries_once_with_validation_errors(fakes, ready_project, monke
     assert data["plan_meta"]["cost_usd"] == 0.04
 
 
+def test_template_shot_renders_without_any_ai_call(fakes, ready_project):
+    import uuid as _uuid
+
+    from app.models import Shot
+    from app.services.generation import templates as T
+
+    llm, rend = fakes
+    c, csrf, pid = ready_project
+    h = {"X-CSRF-Token": csrf}
+    c.post(f"/api/projects/{pid}/plan", headers=h)
+    with get_sessionmaker()() as db:
+        s = db.query(Shot).filter(Shot.project_id == _uuid.UUID(pid), Shot.index == 1).one()
+        s.prompt = T.to_prompt("stat", {"value": "50,000", "label": "policy documents", "on": "Kafka"})
+        db.commit()
+        sid = str(s.id)
+    calls_before = len(llm.calls)
+    c.post(f"/api/projects/{pid}/generate", json={"shot_ids": [sid]}, headers=h)
+    shot = next(x for x in c.get(f"/api/projects/{pid}/shots").json()["shots"] if x["id"] == sid)
+    t = shot["takes"][-1]
+    assert shot["state"] == "review" and t["model"] == "template:stat" and t["cost_usd"] == 0
+    assert len(llm.calls) == calls_before  # no AI call at all
+    assert "50,000" in rend.requests[-1]["html"] and "tl.to(o" in rend.requests[-1]["js"]
+
+
+def test_broken_template_json_fails_with_a_clear_message(fakes, ready_project):
+    import uuid as _uuid
+
+    from app.models import Shot
+
+    c, csrf, pid = ready_project
+    h = {"X-CSRF-Token": csrf}
+    c.post(f"/api/projects/{pid}/plan", headers=h)
+    with get_sessionmaker()() as db:
+        s = db.query(Shot).filter(Shot.project_id == _uuid.UUID(pid), Shot.index == 1).one()
+        s.prompt = '@template steps\n{"steps": []}'
+        db.commit()
+        sid = str(s.id)
+    c.post(f"/api/projects/{pid}/generate", json={"shot_ids": [sid]}, headers=h)
+    shot = next(x for x in c.get(f"/api/projects/{pid}/shots").json()["shots"] if x["id"] == sid)
+    assert shot["state"] == "failed" and "fix the shot's JSON" in shot["error"]
+
+
 def test_worker_boot_fails_interrupted_takes_and_skips_them(fakes, ready_project):
     import uuid as _uuid
 
