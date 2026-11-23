@@ -7,6 +7,7 @@ free-form brief.
 
 import json
 import logging
+import re
 import uuid
 
 from sqlalchemy import select
@@ -72,20 +73,33 @@ Reply with ONLY JSON: {"shots": [{"index": 12, "template": {"name": "compare", "
 def system_prompt() -> str:
     from app.services.generation.icons import names
 
-    return SYSTEM.replace("{templates}", T.catalogue()).replace(
-        "{icons}", ", ".join(names())
-    )
+    return SYSTEM.replace("{templates}", T.catalogue()).replace("{icons}", ", ".join(names()))
 
 
-def candidates(db: Session, p: Project) -> list[Shot]:
+REDO_SKIP = {
+    ShotState.accepted,
+    ShotState.generating,
+}  # never touch what the creator approved or is rendering
+
+
+def candidates(db: Session, p: Project, redo: bool = False) -> list[Shot]:
+    """Free-form shots to convert; with `redo`, the existing template shots to re-choose (not accepted ones)."""
     shots = db.scalars(select(Shot).where(Shot.project_id == p.id).order_by(Shot.index))
+    if redo:
+        return [s for s in shots if s.visual_type == "code_animation" and _is_template(s)
+                and s.state not in REDO_SKIP]  # fmt: skip
     return [
-        s
-        for s in shots
-        if s.visual_type == "code_animation"
-        and s.state not in KEEP
-        and not _is_template(s)
+        s for s in shots if s.visual_type == "code_animation" and s.state not in KEEP and not _is_template(s)
     ]
+
+
+def _brief(s: Shot) -> str:
+    """The designer brief: for a template shot it was moved into the notes when it was converted."""
+    if _is_template(s):
+        m = re.search(r"brief: (.*)", s.notes or "", re.S)
+        if m:
+            return m.group(1)
+    return s.prompt
 
 
 def _is_template(s: Shot) -> bool:
@@ -103,20 +117,10 @@ def _set_status(db: Session, p: Project, **kv) -> None:
     db.commit()
 
 
-def begin(db: Session, p: Project) -> int:
-    n = len(candidates(db, p))
-    _set_status(
-        db,
-        p,
-        status="running",
-        total=n,
-        done=0,
-        converted=0,
-        kept=0,
-        cost_usd=0.0,
-        error=None,
-    )
-    _dispatch["run"](str(p.id))
+def begin(db: Session, p: Project, redo: bool = False) -> int:
+    n = len(candidates(db, p, redo))
+    _set_status(db, p, status="running", total=n, done=0, converted=0, kept=0, cost_usd=0.0, error=None)
+    _dispatch["run"](str(p.id), redo)
     return n
 
 
@@ -129,13 +133,10 @@ def _template_of(s: Shot | None) -> str | None:
 
 def _user_message(p: Project, batch: list[Shot], previous: str | None = None) -> str:
     sg = p.style_guide or {}
-    vocab = [
-        {k: e.get(k) for k in ("id", "label", "icon", "color", "note")}
-        for e in sg.get("entities", [])
-    ]
+    vocab = [{k: e.get(k) for k in ("id", "label", "icon", "color", "note")} for e in sg.get("entities", [])]
     shot_ents = sg.get("shot_entities") or {}
     rows = [{"index": s.index, "mode": s.theme, "seconds": round(s.duration_ms / 1000, 1),
-             "narration": s.transcript_text, "brief": s.prompt[:1500],
+             "narration": s.transcript_text, "brief": _brief(s)[:1500],
              "entities": shot_ents.get(str(s.index), [])} for s in batch]  # fmt: skip
     from app.services.direction import brief
 
@@ -158,11 +159,20 @@ def _apply(db: Session, batch: list[Shot], reply: dict) -> tuple[int, int]:
         except T.TemplateError as ex:
             log.info("shot %s stays free-form: %s", s.index, ex)
             continue
-        brief = s.prompt
-        s.prompt = T.to_prompt(tpl["name"], tpl["params"])
-        s.notes = (f"{s.notes} · brief: {brief}" if s.notes else f"brief: {brief}")[
-            :2000
-        ]
+        new = T.to_prompt(tpl["name"], tpl["params"])
+        db.refresh(s)  # the model call took a while: a queued shot may have started rendering meanwhile
+        if s.state in REDO_SKIP:
+            continue
+        if _is_template(s):  # re-choosing: the brief is already in the notes
+            if new == s.prompt:
+                continue
+            s.prompt = new
+            if s.state == ShotState.review:  # needs a new take; earlier takes stay to compare
+                s.state = ShotState.planned
+        else:
+            brief = s.prompt
+            s.prompt = new
+            s.notes = (f"{s.notes} · brief: {brief}" if s.notes else f"brief: {brief}")[:2000]
         if s.state in (ShotState.failed, ShotState.paused_budget):
             s.state, s.error = ShotState.planned, None
         converted += 1
@@ -170,23 +180,21 @@ def _apply(db: Session, batch: list[Shot], reply: dict) -> tuple[int, int]:
     return converted, len(batch) - converted
 
 
-def run(project_id: str) -> None:
+def run(project_id: str, redo: bool = False) -> None:
     pid = uuid.UUID(project_id)
     with get_sessionmaker()() as db:
         p = db.get(Project, pid)
         if p is None:
             return
         cfg = routing.load()
-        todo = candidates(db, p)
+        todo = candidates(db, p, redo)
         done = converted = kept = 0
         cost = 0.0
         try:
             for i in range(0, len(todo), BATCH):
                 batch = todo[i : i + BATCH]
                 prev = db.scalar(
-                    select(Shot).where(
-                        Shot.project_id == p.id, Shot.index == batch[0].index - 1
-                    )
+                    select(Shot).where(Shot.project_id == p.id, Shot.index == batch[0].index - 1)
                 )
                 msg = _user_message(p, batch, _template_of(prev))
                 text, res = llm.chat(cfg.planner.model, [{"role": "user", "content": msg}],
@@ -199,14 +207,7 @@ def run(project_id: str) -> None:
                     log.warning("templatize batch unreadable: %s", ex)
                     c, k = 0, len(batch)
                 done, converted, kept = done + len(batch), converted + c, kept + k
-                _set_status(
-                    db,
-                    p,
-                    done=done,
-                    converted=converted,
-                    kept=kept,
-                    cost_usd=round(cost, 4),
-                )
+                _set_status(db, p, done=done, converted=converted, kept=kept, cost_usd=round(cost, 4))
             _set_status(db, p, status="done")
         except LLMError as ex:
             db.rollback()
@@ -218,6 +219,4 @@ def run(project_id: str) -> None:
             log.exception("templatize failed")
             db.rollback()
             p = db.get(Project, pid)
-            _set_status(
-                db, p, status="failed", error=f"{type(ex).__name__}: {ex}"[:500]
-            )
+            _set_status(db, p, status="failed", error=f"{type(ex).__name__}: {ex}"[:500])

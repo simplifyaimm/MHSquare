@@ -354,6 +354,28 @@ def test_convert_unfinished_shots_to_templates(fakes, ready_project, monkeypatch
         db.commit()
     assert c.post(f"/api/projects/{pid}/templatize", headers=h).status_code == 409
 
+    # redo: re-choose the template of a finished template shot for a better mix
+    with get_sessionmaker()() as db:
+        db.query(Shot).filter(Shot.project_id == _uuid.UUID(pid), Shot.index == 0).one().state = "review"
+        db.commit()
+    seen.clear()
+
+    def rechoose(alias, messages, *, system=None, **kw):
+        seen.append(messages[0]["content"])
+        return json.dumps({"shots": [{"index": 0, "template": {"name": "hub", "params": {
+            "center": {"label": "AI app"}, "spokes": [{"label": "Java"}, {"label": "API"}]}}}]}), \
+            client.CallResult(alias=alias, cost_usd=0.01)  # fmt: skip
+
+    monkeypatch.setattr(client, "chat", rechoose)
+    assert c.post(f"/api/projects/{pid}/templatize?redo=true", headers=h).json()["queued"] == 1
+    s0 = c.get(f"/api/projects/{pid}/shots").json()["shots"][0]
+    assert T.parse(s0["prompt"])[0] == "hub" and s0["state"] == "planned"  # next take renders the new one
+    assert s0["notes"].count("brief:") == 1 and "X persona appears" in seen[0]  # original brief, not the JSON
+    with get_sessionmaker()() as db:  # accepted shots are never re-chosen
+        db.query(Shot).filter(Shot.project_id == _uuid.UUID(pid), Shot.index == 0).one().state = "accepted"
+        db.commit()
+    assert c.post(f"/api/projects/{pid}/templatize?redo=true", headers=h).status_code == 409
+
 
 def test_broken_template_json_fails_with_a_clear_message(fakes, ready_project):
     import uuid as _uuid
@@ -383,7 +405,7 @@ def test_worker_boot_fails_interrupted_takes_and_skips_them(fakes, ready_project
     c.post(f"/api/projects/{pid}/plan", headers={"X-CSRF-Token": csrf})
     with get_sessionmaker()() as db:
         shots = db.query(Shot).filter(Shot.project_id == _uuid.UUID(pid)).order_by(Shot.index).all()
-        running, pending = generation.queue_shot(db, shots[0]), generation.queue_shot(db, shots[1])
+        running, pending = (generation.queue_shot(db, shots[0]), generation.queue_shot(db, shots[1]))
         running.status, shots[0].state = "running", ShotState.generating
         db.commit()
         rid, pend_id = running.id, pending.id

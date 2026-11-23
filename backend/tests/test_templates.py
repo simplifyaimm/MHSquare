@@ -12,10 +12,7 @@ from app.services.generation.scene import check
 from app.services.planner import PlanError, build_shots, validate_plan
 
 LONG = dict(
-    w=1920,
-    h=1080,
-    short=False,
-    zones=[{"name": "face-cam", "x": 1498, "y": 842, "w": 422, "h": 238}],
+    w=1920, h=1080, short=False, zones=[{"name": "face-cam", "x": 1498, "y": 842, "w": 422, "h": 238}]
 )
 SHORT = dict(w=1080, h=1440, short=True, zones=[])
 
@@ -48,22 +45,14 @@ def test_on_phrase_lands_on_the_spoken_word_else_staggers():
     b = T.Beats(ctx(words))
     assert b.at("build with", 0, 3) == pytest.approx(2.28)
     assert b.at("Models", 0, 3) == pytest.approx(2.78)  # case/punctuation-insensitive
-    assert (
-        0.2 < b.at("not spoken", 1, 3) < b.at("not spoken", 2, 3) < 6.0
-    )  # fallback stagger
+    assert 0.2 < b.at("not spoken", 1, 3) < b.at("not spoken", 2, 3) < 6.0  # fallback stagger
 
 
 def test_entity_supplies_label_icon_and_role():
     sc = T.build(
-        "scenario",
-        {"persona": {"entity": "robin"}, "items": [{"label": "Insurance client"}]},
-        ctx(),
+        "scenario", {"persona": {"entity": "robin"}, "items": [{"label": "Insurance client"}]}, ctx()
     )
-    assert (
-        "Robin" in sc.html
-        and "Java developer" in sc.html
-        and 'data-icon="user-round"' in sc.html
-    )
+    assert "Robin" in sc.html and "Java developer" in sc.html and 'data-icon="user-round"' in sc.html
 
 
 def test_text_is_escaped_and_unknown_icons_fall_back():
@@ -87,10 +76,7 @@ def test_validation_errors_are_specific(name, params, msg):
 
 def test_prompt_round_trip_and_free_form_is_not_a_template():
     p = T.to_prompt("stat", {"value": "3×", "label": "faster"})
-    assert p.startswith("@template stat\n") and T.parse(p) == (
-        "stat",
-        {"value": "3×", "label": "faster"},
-    )
+    assert p.startswith("@template stat\n") and T.parse(p) == ("stat", {"value": "3×", "label": "faster"})
     assert T.parse("A hub diagram with Kafka in the middle") is None
     with pytest.raises(T.TemplateError, match="not valid JSON"):
         T.parse("@template stat\n{oops")
@@ -99,10 +85,7 @@ def test_prompt_round_trip_and_free_form_is_not_a_template():
 def test_code_template_highlights_syntax_and_lines():
     sc = T.build("code", {"filename": "A.java", "lang": "java", "lines": ["public class A {", '  String s = "x"; // hi',
                           "}"], "highlights": [{"lines": [2], "kind": "bad"}]}, ctx())  # fmt: skip
-    assert (
-        '<span class="kw">public</span>' in sc.html
-        and '<span class="str">&quot;x&quot;</span>' in sc.html
-    )
+    assert '<span class="kw">public</span>' in sc.html and '<span class="str">&quot;x&quot;</span>' in sc.html
     assert 'class="lnb bad" id="lb1"' in sc.html and "tl.to('#lb1'" in sc.js
 
 
@@ -113,34 +96,24 @@ def test_stat_counts_up_to_the_value():
 
 # ---------------------------------------------------------------- planner integration
 
-SG = {
-    "summary": "x",
-    "entities": [{"id": "robin", "label": "Robin", "icon": "user-round"}],
-}
+SG = {"summary": "x", "entities": [{"id": "robin", "label": "Robin", "icon": "user-round"}]}
 
 
 def test_planner_template_becomes_the_canonical_prompt_and_brief_a_note():
     shot = {"from_segment": 1, "to_segment": 1, "visual_type": "code_animation", "theme": "tech",
             "prompt": "two worlds of AI", "template": {"name": "compare", "params": {
                 "left": {"label": "World 1"}, "right": {"label": "World 2"}}}}  # fmt: skip
-    plan = validate_plan(
-        {"style_guide": SG, "shots": [shot]}, 1, ["code_animation"], False
-    )
+    plan = validate_plan({"style_guide": SG, "shots": [shot]}, 1, ["code_animation"], False)
     built = build_shots(plan, [{"n": 1, "start_ms": 0, "end_ms": 900, "text": "x"}],
                         [{"w": "x", "start_ms": 0, "end_ms": 900}], 1000)  # fmt: skip
-    assert (
-        T.parse(built[0]["prompt"])[0] == "compare"
-        and "brief: two worlds of AI" in built[0]["notes"]
-    )
+    assert T.parse(built[0]["prompt"])[0] == "compare" and "brief: two worlds of AI" in built[0]["notes"]
 
 
 def test_planner_rejects_invalid_template_params():
     shot = {"from_segment": 1, "to_segment": 1, "visual_type": "code_animation", "theme": "tech",
             "prompt": "a precise brief", "template": {"name": "steps", "params": {"steps": []}}}  # fmt: skip
     with pytest.raises(PlanError, match="template steps"):
-        validate_plan(
-            {"style_guide": SG, "shots": [shot]}, 1, ["code_animation"], False
-        )
+        validate_plan({"style_guide": SG, "shots": [shot]}, 1, ["code_animation"], False)
 
 
 def test_planner_prompt_lists_every_template():

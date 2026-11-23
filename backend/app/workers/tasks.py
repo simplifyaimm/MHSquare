@@ -78,16 +78,16 @@ planner.register_dispatch("plan", lambda pid: plan_run.delay(pid))
 
 
 @celery_app.task(name="plan.templatize")
-def plan_templatize(project_id: str) -> None:
+def plan_templatize(project_id: str, redo: bool = False) -> None:
     from app.services.planner import templatize
 
-    templatize.run(project_id)
+    templatize.run(project_id, redo)
 
 
 def _register_templatize() -> None:
     from app.services.planner import templatize
 
-    templatize.register_dispatch(lambda pid: plan_templatize.delay(pid))
+    templatize.register_dispatch(lambda pid, redo=False: plan_templatize.delay(pid, redo))
 
 
 _register_templatize()

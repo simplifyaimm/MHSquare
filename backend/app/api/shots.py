@@ -135,8 +135,11 @@ def plan(project_id: uuid.UUID, db: Session = Depends(get_db)):
 
 
 @router.post("/projects/{project_id}/templatize", status_code=status.HTTP_202_ACCEPTED)
-def templatize(project_id: uuid.UUID, db: Session = Depends(get_db)):
-    """Rewrite unfinished free-form animation shots as scene templates (keeps timing and finished shots)."""
+def templatize(project_id: uuid.UUID, redo: bool = False, db: Session = Depends(get_db)):
+    """Rewrite unfinished free-form animation shots as scene templates (keeps timing and finished shots).
+
+    `redo=true` re-chooses the templates of existing template shots (not accepted ones) for a better mix; a
+    changed shot goes back to planned so its next take renders the new template (earlier takes stay)."""
     from app.services.planner import templatize as TZ
 
     p = _project(db, project_id)
@@ -144,9 +147,10 @@ def templatize(project_id: uuid.UUID, db: Session = Depends(get_db)):
         raise HTTPException(status.HTTP_409_CONFLICT, "Plan the shot list first")
     if ((p.plan_meta or {}).get("templatize") or {}).get("status") == "running":
         raise HTTPException(status.HTTP_409_CONFLICT, "Already converting")
-    if not TZ.candidates(db, p):
-        raise HTTPException(status.HTTP_409_CONFLICT, "No unfinished free-form animation shots to convert")
-    return {"queued": TZ.begin(db, p)}
+    if not TZ.candidates(db, p, redo):
+        what = "template shots to re-choose" if redo else "unfinished free-form animation shots to convert"
+        raise HTTPException(status.HTTP_409_CONFLICT, f"No {what}")
+    return {"queued": TZ.begin(db, p, redo)}
 
 
 @router.get("/projects/{project_id}/shots")
