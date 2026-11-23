@@ -40,8 +40,50 @@ PROVIDERS: tuple[Provider, ...] = (
         "https://aistudio.google.com/apikey",
     ),
     Provider("openai", "OpenAI", "OPENAI_API_KEY", "openai/", "https://platform.openai.com/api-keys"),
-    Provider("openrouter", "OpenRouter", "OPENROUTER_API_KEY", "openrouter/", "https://openrouter.ai/keys"),
+    Provider(
+        "openrouter",
+        "OpenRouter (one key → most models)",
+        "OPENROUTER_API_KEY",
+        "openrouter/",
+        "https://openrouter.ai/keys",
+    ),
+    Provider(
+        "deepseek", "DeepSeek", "DEEPSEEK_API_KEY", "deepseek/", "https://platform.deepseek.com/api_keys"
+    ),
+    Provider(
+        "dashscope",
+        "Alibaba Qwen (Model Studio / DashScope)",
+        "DASHSCOPE_API_KEY",
+        "dashscope/",
+        "https://modelstudio.console.alibabacloud.com/",
+    ),
+    Provider(
+        "moonshot",
+        "Moonshot Kimi",
+        "MOONSHOT_API_KEY",
+        "moonshot/",
+        "https://platform.moonshot.ai/console/api-keys",
+    ),
+    Provider("zai", "Z.ai GLM (Zhipu)", "ZAI_API_KEY", "zai/", "https://z.ai/manage-apikey/apikey-list"),
+    Provider("minimax", "MiniMax", "MINIMAX_API_KEY", "minimax/", "https://www.minimax.io/platform"),
+    Provider("xai", "xAI Grok", "XAI_API_KEY", "xai/", "https://console.x.ai"),
+    Provider("mistral", "Mistral", "MISTRAL_API_KEY", "mistral/", "https://console.mistral.ai/api-keys"),
+    Provider(
+        "fal_ai",
+        "fal.ai (images: FLUX, Seedream)",
+        "FAL_AI_API_KEY",
+        "fal_ai/",
+        "https://fal.ai/dashboard/keys",
+    ),
 )
+
+# Suggested IDs (free text is allowed; Settings → "Test" verifies one). Vision = can run the frame QA review.
+_CODE_LLMS = (
+    "anthropic/claude-sonnet-5-5", "anthropic/claude-opus-5-5", "gemini/gemini-2.5-pro",
+    "openrouter/anthropic/claude-sonnet-5-5", "dashscope/qwen3-coder-plus", "zai/glm-4.6",
+    "moonshot/kimi-k2-turbo-preview", "deepseek/deepseek-chat", "minimax/MiniMax-M2", "xai/grok-4",
+    "mistral/mistral-large-latest", "openrouter/qwen/qwen3-coder", "openrouter/z-ai/glm-4.6",
+)  # fmt: skip
 PROVIDERS_BY_ID = {p.id: p for p in PROVIDERS}
 
 
@@ -60,28 +102,33 @@ MODEL_SLOTS: tuple[ModelSlot, ...] = (
         "MH_MODEL_PLANNER_LLM",
         "Shot planner",
         "llm",
-        ("anthropic/claude-opus-5-5", "anthropic/claude-sonnet-5-5", "gemini/gemini-2.5-pro"),
+        ("anthropic/claude-opus-5-5", *_CODE_LLMS),
     ),
     ModelSlot(
         "code-llm",
         "MH_MODEL_CODE_LLM",
-        "Manim code writer",
+        "Scene writer (animation code + frame review)",
         "llm",
-        ("anthropic/claude-sonnet-5-5", "anthropic/claude-opus-5-5", "gemini/gemini-2.5-pro"),
+        _CODE_LLMS,
     ),
     ModelSlot(
         "code-llm-backup",
         "MH_MODEL_CODE_LLM_BACKUP",
-        "Code writer fallback",
+        "Backup writer — use a DIFFERENT provider",
         "llm",
-        ("anthropic/claude-haiku-5-5", "gemini/gemini-2.5-flash"),
+        ("gemini/gemini-2.5-flash", "anthropic/claude-haiku-5-5", *_CODE_LLMS),
     ),
     ModelSlot(
         "image-gen",
         "MH_MODEL_IMAGE_GEN",
         "Images & keyframes",
         "image",
-        ("gemini/imagen-4.0-generate-001", "openai/gpt-image-1"),
+        (
+            "gemini/imagen-4.0-generate-001",
+            "openai/gpt-image-1",
+            "fal_ai/fal-ai/flux-pro/v1.1",
+            "fal_ai/fal-ai/bytedance/seedream/v4/text-to-image",
+        ),
     ),
     ModelSlot(
         "video-gen",

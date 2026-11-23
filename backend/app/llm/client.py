@@ -4,6 +4,7 @@ Normal calls use the mhsquare virtual key. The master key is used ONLY for key a
 (creating/updating the budgeted virtual key from the Settings screen).
 """
 
+import logging
 from datetime import datetime
 from typing import Any
 
@@ -12,6 +13,8 @@ import httpx
 from app.core.config import get_settings
 from app.llm import settings_store
 from app.llm.settings_store import MODEL_SLOTS
+
+log = logging.getLogger(__name__)
 
 
 class LiteLLMUnavailable(RuntimeError):
@@ -177,6 +180,24 @@ def _post_once(path: str, body: dict, timeout: float) -> httpx.Response:
         raise LLMError(ErrorKind.transient, f"LiteLLM unreachable: {e}") from e
 
 
+_OUR_BUDGET = "budget has been exceeded"  # LiteLLM's message for mhsquare's own daily key budget
+_PROVIDER_DOWN = ("credit balance", "insufficient_quota", "exceeded your current quota", "billing", "disabled",
+                  "suspended", "invalid api key", "invalid x-api-key", "incorrect api key", "authentication",
+                  "api key not valid", "permission", "no credits", "payment required", "quota exceeded",
+                  "resource_exhausted", "not found", "does not exist", "llm provider not provided")  # fmt: skip
+
+
+def provider_down(err: LLMError) -> bool:
+    """The PROVIDER behind an alias can't serve us (credit, quota, account, key, unknown model) — another
+    alias may still work. mhsquare's own daily budget is NOT this: it must pause everything."""
+    m = str(err).lower()
+    if _OUR_BUDGET in m:
+        return False
+    if err.status in (401, 402, 403, 404):
+        return True
+    return err.kind in (ErrorKind.budget, ErrorKind.invalid) and any(s in m for s in _PROVIDER_DOWN)
+
+
 def _call(path: str, body: dict, aliases: list[str], timeout: float) -> tuple[str, httpx.Response]:
     """POST with retry/backoff; on persistent transient errors move to the next alias."""
     last: LLMError | None = None
@@ -200,10 +221,15 @@ def _call(path: str, body: dict, aliases: list[str], timeout: float) -> tuple[st
                 transient_tries += 1
                 _sleep(2 * transient_tries)
                 continue
-            if err.kind == ErrorKind.transient:
+            if err.kind == ErrorKind.transient or provider_down(err):
+                if provider_down(err):
+                    log.warning("%s unavailable (%s); trying the next model", alias, str(err)[:160])
                 break  # try the next fallback alias
             raise err
     assert last is not None
+    if provider_down(last):  # every model in the chain is unavailable → pause (resumable), don't fail
+        raise LLMError(ErrorKind.budget, f"all models unavailable ({', '.join(aliases)}). Last: {last}"[:2000],
+                       last.status)  # fmt: skip
     raise last
 
 

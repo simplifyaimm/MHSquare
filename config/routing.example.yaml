@@ -7,7 +7,7 @@ visual_types:
     generator: html_animation      # LLM writes an HTML/CSS/JS (GSAP) scene -> sandboxed Chromium renders it
     alt_generator: manim_code      # alternative (Manim)
     llm_model: code-llm
-    fallbacks: [code-llm-backup]
+    fallbacks: [code-llm-backup, planner-llm]   # different providers → one going down never stops a video
   ai_clip:
     generator: video
     model: video-gen
@@ -25,7 +25,7 @@ visual_types:
     generator: passthrough         # face-cam footage
 planner:
   model: planner-llm
-  fallbacks: []
+  fallbacks: [code-llm, code-llm-backup]
   # Visual types the planner may use. Remove still_image / ai_clip while no image/video
   # provider has credits — story scenes then become illustrated (SVG) motion scenes.
   allowed_visual_types: [code_animation, still_image, ai_clip, text_card, a_roll]

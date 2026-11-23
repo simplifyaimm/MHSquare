@@ -49,7 +49,7 @@ DEFAULT = RoutingConfig(
             generator="html_animation",
             alt_generator="manim_code",
             llm_model="code-llm",
-            fallbacks=["code-llm-backup"],
+            fallbacks=["code-llm-backup", "planner-llm"],
         ),
         "ai_clip": VisualRoute(
             generator="video",
@@ -64,7 +64,7 @@ DEFAULT = RoutingConfig(
         "text_card": VisualRoute(generator="template"),
         "a_roll": VisualRoute(generator="passthrough"),
     },
-    planner=PlannerRoute(model="planner-llm"),
+    planner=PlannerRoute(model="planner-llm", fallbacks=["code-llm", "code-llm-backup"]),
 )
 
 

@@ -117,6 +117,37 @@ def test_budget_and_policy_errors_are_not_retried(monkeypatch, calls):
     assert e.value.kind == ErrorKind.budget and calls == ["code-llm"]
 
 
+@pytest.mark.parametrize(("status", "message"), [
+    (400, "Your credit balance is too low to access the Anthropic API."),
+    (403, "This organization has been disabled."),
+    (401, "invalid x-api-key"),
+    (429, "You exceeded your current quota, please check your plan and billing details."),
+])  # fmt: skip
+def test_provider_outage_fails_over_to_the_next_provider(monkeypatch, calls, status, message):
+    def post(url, headers, json, timeout):
+        calls.append(json["model"])
+        if json["model"] == "planner-llm":
+            return _ok("from the third provider")
+        return _resp(status, {"error": {"message": message}})
+
+    monkeypatch.setattr(httpx, "post", post)
+    text, res = client.chat("code-llm", [], fallbacks=["code-llm-backup", "planner-llm"])
+    assert text == "from the third provider" and res.alias == "planner-llm"
+    assert calls[-1] == "planner-llm" and "code-llm-backup" in calls
+
+
+def test_every_provider_down_pauses_instead_of_failing(monkeypatch, calls):
+    def post(url, headers, json, timeout):
+        calls.append(json["model"])
+        return _resp(400, {"error": {"message": "Your credit balance is too low"}})
+
+    monkeypatch.setattr(httpx, "post", post)
+    with pytest.raises(LLMError) as e:
+        client.chat("code-llm", [], fallbacks=["code-llm-backup"])
+    assert e.value.kind == ErrorKind.budget and "all models unavailable" in str(e.value)
+    assert calls == ["code-llm", "code-llm-backup"]
+
+
 def test_script_to_speech_text():
     md = "# Kafka in 5 minutes\n\nKafka is a **distributed** log. See [docs](http://x).\n\n```py\nprint(1)\n```\n\n- fast\n- durable"
     assert script_to_speech_text(md) == [

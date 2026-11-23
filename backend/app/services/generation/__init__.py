@@ -610,7 +610,11 @@ def vision_qa(model: str, fallbacks: list[str], shot: Shot, entities: list[dict]
             "issues": [str(i) for i in v.get("issues", [])][:5],
         }
         return verdict, res.cost_usd
-    except LLMError:
+    except LLMError as e:
+        # e.g. a text-only fallback model can't take images: skip QA, keep the render
+        if e.kind == ErrorKind.invalid:
+            log.warning("vision QA skipped (model can't review images?): %s", e)
+            return {"ok": True, "skipped": str(e)[:200]}, 0.0
         raise
     except Exception as e:  # noqa: BLE001 — QA must never block a usable render
         log.warning("vision QA skipped: %s", e)
