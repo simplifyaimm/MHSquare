@@ -79,7 +79,8 @@ PROVIDERS: tuple[Provider, ...] = (
 
 # Suggested IDs (free text is allowed; Settings → "Test" verifies one). Vision = can run the frame QA review.
 _CODE_LLMS = (
-    "anthropic/claude-sonnet-5-5", "anthropic/claude-opus-5-5", "gemini/gemini-2.5-pro",
+    "anthropic/claude-sonnet-5-5", "anthropic/claude-opus-5-5", "openai/gpt-5.5", "openai/gpt-5.4-mini",
+    "gemini/gemini-2.5-pro",
     "openrouter/anthropic/claude-sonnet-5-5", "dashscope/qwen3-coder-plus", "zai/glm-4.6",
     "moonshot/kimi-k2-turbo-preview", "deepseek/deepseek-chat", "minimax/MiniMax-M2", "xai/grok-4",
     "mistral/mistral-large-latest", "openrouter/qwen/qwen3-coder", "openrouter/z-ai/glm-4.6",
