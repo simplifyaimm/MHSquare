@@ -7,7 +7,7 @@
   box-shadow:0 0 0 6px color-mix(in srgb,var(--accent) 14%,transparent),0 0 46px color-mix(in srgb,var(--accent) 55%,transparent)}
 .sc-persona .ring [data-icon]{font-size:96px;color:#e8eef7}
 .sc-persona b{font:600 30px/1 var(--f-head);text-transform:uppercase;letter-spacing:.04em;color:#ffffff}
-.sc-persona small{font:500 16px/1 var(--f-mono);letter-spacing:.14em;text-transform:uppercase;color:var(--accent)}
+.sc-persona small{font:500 20px/1 var(--f-mono);letter-spacing:.14em;text-transform:uppercase;color:var(--accent)}
 .sc-say{position:absolute;max-width:620px;padding:20px 26px;border-radius:18px;background:#132036;
   border:1.5px solid color-mix(in srgb,var(--accent) 60%,transparent);font:500 28px/1.35 var(--f-body);color:#ffffff;
   box-shadow:0 16px 48px rgba(0,0,0,.45)}

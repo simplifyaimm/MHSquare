@@ -266,6 +266,10 @@ def write_and_render(db: Session, p: Project, shot: Shot, take: Take, model: str
             verdict, qcost = vision_qa(model, fallbacks, shot, ents, profile, result.qa_frames)
             cost += qcost
             take.cost_usd = round(cost, 5)
+            measured = list(result.info.get("layout_warnings") or [])
+            if measured:  # facts measured on the final frame outrank the model's opinion of it
+                verdict = {**verdict, "ok": False, "measured": measured,
+                           "issues": (measured + list(verdict.get("issues", [])))[:6]}  # fmt: skip
             take.meta = {**take.meta, "qa": verdict}
             if not verdict.get("ok", True) and verdict.get("issues"):
                 qa_fix_used = True

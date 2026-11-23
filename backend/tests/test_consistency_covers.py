@@ -118,6 +118,40 @@ def test_vision_qa_triggers_one_polish_round(fakes, ready_project, monkeypatch):
     assert "title overlaps the diagram" in llm.calls[-1]["messages"][-1]["content"]  # polish request sent
 
 
+def test_measured_layout_problems_force_the_polish_even_if_qa_approves(fakes, ready_project, monkeypatch):  # noqa: F811
+    llm, rend = fakes
+    c, csrf, pid = ready_project
+    orig_chat = llm.chat
+
+    def chat(alias, messages, *, system=None, **kw):
+        if system and "senior motion designer reviewing" in system:
+            ok = json.dumps({"ok": True, "score": 8, "issues": []})
+            return ok, client.CallResult(alias=alias, cost_usd=0.005)
+        return orig_chat(alias, messages, system=system, **kw)
+
+    monkeypatch.setattr(client, "chat", chat)
+    advice = "composition: content fills 30%×20% of the stage, centred at (25%, 30%) — spread it"
+
+    def render_with_qa(**req):
+        r = rend.render(**req)
+        f = Path(get_settings().render_out_dir) / f"qa{uuid.uuid4().hex[:6]}.jpg"
+        subprocess.run(["ffmpeg", "-nostdin", "-v", "error", "-y", "-i", str(r.video), "-frames:v", "1", str(f)],  # noqa: S603, S607
+                       check=True)  # fmt: skip
+        r.qa_frames = [f] if req.get("qa_frames") else []
+        r.info = {**r.info, "layout_warnings": [advice]}
+        return r
+
+    monkeypatch.setattr(renderer, "render", render_with_qa)
+    h = {"X-CSRF-Token": csrf}
+    c.post(f"/api/projects/{pid}/plan", headers=h)
+    sid = c.get(f"/api/projects/{pid}/shots").json()["shots"][1]["id"]
+    c.post(f"/api/projects/{pid}/generate", json={"shot_ids": [sid]}, headers=h)
+    t = next(s for s in c.get(f"/api/projects/{pid}/shots").json()["shots"] if s["id"] == sid)["takes"][-1]
+    assert t["meta"]["fix_rounds"] == 1 and t["meta"]["qa"]["ok"] is False
+    assert t["meta"]["qa"]["measured"] == [advice] and t["meta"]["qa"]["score"] == 8
+    assert advice in llm.calls[-1]["messages"][-1]["content"]  # the polish request carries the measurement
+
+
 def test_cover_concepts_normalised():
     o = covers.normalise({"headline": "Why Kafka sits in the middle", "highlight": ["Kafka", "Redis"],
                           "eyebrow": "event streaming series ep", "icons": ["server", "dragon", "users"],

@@ -97,9 +97,11 @@ tl.set({}, {}, DURATION);   // the timeline must end exactly at the shot duratio
 - Give the frame life: a slow camera drift (scale a wrapper 1.0 → 1.03 over the shot) is good.
 - Safe area: keep text ≥ 120 px from left/right edges and ≥ 90 px from top/bottom. Minimum font 20 px.
 - Keep on-screen text short (labels ≤ 6 words). Never paste the narration as paragraphs.
-- Fill the frame: the main composition sits centred in the safe area and spans ~60–85% of the width.
-  Prefer few LARGE elements over many small ones. Minimum sizes: body/labels 22 px, small captions and
-  indices 18 px, eyebrows 15 px. Cards in diagrams at least 280×110 px.
+- Fill the frame: the main composition sits centred in the safe area and spans ~60–85% of the width and
+  ≥ 40% of the height. Prefer few LARGE elements over many small ones: ≤ 6 groups in the final frame, nothing
+  stacked on top of other text. Sizes (1080p stage): labels ≥ 24 px, body ≥ 28 px, NOTHING below 20 px (eyebrows,
+  captions and indices included). Cards in diagrams at least 280×110 px. These are MEASURED on the final frame:
+  text under 20 px or text overlapping text fails the render; an unbalanced layout is sent back for a polish.
 - End on a calm, composed frame held for ≥ 0.8 s. Do NOT fade everything out at the end."""
 
 TECH_DOC = """## Brand kit (theme "tech") — use these classes (already loaded); colours/fonts come from the Style Profile
@@ -258,7 +260,11 @@ Speech: <div class="sc-say" style="left:..;top:..">Why did my order fail?</div> 
 Places / things from the icon library: <div class="sc-place" style="left:..;top:.."><i data-icon="store"></i><b>Bookstore</b></div>
 Status badges: <span class="sc-badge"><i data-icon="circle-check"></i>Order placed</span>
 Connect things with mhWire / pills / LEDs from the brand kit. Motion: personas fade+scale in, callouts pop on their
-words, a gentle camera push (wrapper scale 1 → 1.04). Never animate facial features; no limbs, no mouths."""
+words, a gentle camera push (wrapper scale 1 → 1.04). Never animate facial features; no limbs, no mouths.
+CONTINUITY: the main persona has ONE anchor in every scenario shot of the video — ring centred at x≈20% of the stage
+width, y≈45% of the height (left:STAGE_W*0.2-ring/2), always the same size. The situation builds to its right
+across the middle band. One idea per shot: at most 3 cards/places around the persona; never pile up duplicates
+(show "everyone says X" as ONE card with a ×3 badge or a count, not three overlapping cards)."""
 
 ICON_RULES = """## Icons — ONLY from the fixed icon library (consistency across the whole video)
 Use <i data-icon="NAME"></i> (size with font-size, colour = currentColor / var(--accent)) or mhIcon('NAME') in JS.

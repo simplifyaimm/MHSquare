@@ -56,10 +56,13 @@ class LayoutError(RuntimeError):
 # Final-frame layout check: visible content inside a keep-clear zone (e.g. the face-cam circle) or
 # text running off the stage. Backgrounds, wires, the footer and stage-sized wrappers are ignored.
 PROBE_JS = r"""
-(zones) => {
+([zones, MIN_PX]) => {
   const stage = document.getElementById('stage');
   const S = stage.getBoundingClientRect(), W = S.width, H = S.height, out = new Set();
+  const texts = [], advice = [];
+  let box = null;
   const ignore = '.mh-bg,.mh-footer,.mh-glow,.st-bg,.st-floor,.st-light,svg.mh-wires,.mh-sparkle,template';
+  const chrome = '.vsc-title,.vsc-tab,.vsc-status,.vsc-gutter,.ln-n';  // realistic UI chrome: small by design
   const visible = (el) => { for (let e = el; e && e !== stage; e = e.parentElement) {
       const cs = getComputedStyle(e);
       if (cs.display === 'none' || cs.visibility === 'hidden' || parseFloat(cs.opacity) < 0.08) return false; }
@@ -82,10 +85,37 @@ PROBE_JS = r"""
     }
     if (ownText && (x < -4 || y < -4 || x + r.width > W + 4 || y + r.height > H + 4))
       out.add(`${label(el)} runs off the stage`);
+    if (ownText) {
+      const px = parseFloat(getComputedStyle(el).fontSize) * 1080 / Math.min(W, H);  // 1080p-equivalent
+      if (px < MIN_PX - 0.5 && !el.closest(chrome)) out.add(`${label(el)} is ${Math.round(px)}px — minimum ${MIN_PX}px, unreadable on phones`);
+      texts.push({el, x, y, w: r.width, h: r.height});
+    }
+    box = box ? {l: Math.min(box.l, x), t: Math.min(box.t, y), r: Math.max(box.r, x + r.width),
+                 b: Math.max(box.b, y + r.height)} : {l: x, t: y, r: x + r.width, b: y + r.height};
   }
-  return [...out].slice(0, 8);
+  for (let i = 0; i < texts.length; i++) for (let j = i + 1; j < texts.length; j++) {
+    const a = texts[i], b = texts[j];
+    if (a.el.contains(b.el) || b.el.contains(a.el)) continue;
+    const ix = Math.max(0, Math.min(a.x + a.w, b.x + b.w) - Math.max(a.x, b.x));
+    const iy = Math.max(0, Math.min(a.y + a.h, b.y + b.h) - Math.max(a.y, b.y));
+    if (ix * iy > 0.25 * Math.min(a.w * a.h, b.w * b.h)) out.add(`${label(a.el)} overlaps ${label(b.el)}`);
+  }
+  if (box) {  // balance: the final frame should use the stage, not one corner of it
+    const cw = (box.r - box.l) / W, ch = (box.b - box.t) / H;
+    const cx = (box.l + box.r) / 2 / W, cy = (box.t + box.b) / 2 / H;
+    const pc = (v) => Math.round(v * 100) + '%', fix = [];
+    if (cw < 0.45) fix.push(`it spans only ${pc(cw)} of the width — widen it to ≥ 55%`);
+    if (ch < 0.35) fix.push(`it spans only ${pc(ch)} of the height — use ≥ 40%`);
+    if (cx < 0.3) fix.push(`it sits in the left part (centre x=${pc(cx)}) — move it right`);
+    if (cx > 0.7) fix.push(`it sits in the right part (centre x=${pc(cx)}) — move it left`);
+    if (cy < 0.3) fix.push(`it is top-heavy (centre y=${pc(cy)}) with empty space below — move it down / use the middle band`);
+    if (cy > 0.7) fix.push(`it sits low (centre y=${pc(cy)}) — move it up`);
+    if (fix.length) advice.push('composition of the final frame: ' + fix.join('; '));
+  }
+  return {issues: [...out].slice(0, 8), advice};
 }
 """
+MIN_TEXT_PX = 20
 
 FREEZE_CSS ="*,*::before,*::after{animation:none!important;transition:none!important;caret-color:transparent}"
 
@@ -193,10 +223,11 @@ def render(req: dict) -> dict:
             probe = req.get("probe")
             if probe:
                 page.evaluate("(t) => window.__mhSeek(t)", (frames - 1) / fps)
-                issues = page.evaluate(PROBE_JS, probe.get("safe_zones", []))
+                res = page.evaluate(PROBE_JS, [probe.get("safe_zones", []), int(probe.get("min_text_px", MIN_TEXT_PX))])
+                issues = res["issues"]
                 if issues and probe.get("mode", "fail") == "fail":
-                    raise LayoutError("layout: " + "; ".join(issues))
-                layout_warnings = issues
+                    raise LayoutError("layout: " + "; ".join(issues + res["advice"]))
+                layout_warnings = issues + res["advice"]
                 # fresh page so callbacks fired while probing can't leak into the real render
                 page.set_content(build_page(req), wait_until="load", timeout=30_000)
                 page.evaluate("document.fonts.ready")
