@@ -84,6 +84,9 @@ function BoardHeader({ pid, data }: { pid: string; data: ShotsResponse }) {
       !templateName(s) &&
       !["review", "accepted", ...BUSY_STATES].includes(s.state),
   ).length;
+  const rechoosable = data.shots.filter(
+    (s) => templateName(s) && !["accepted", ...BUSY_STATES].includes(s.state),
+  ).length;
   const counts = data.shots.reduce<Record<string, number>>(
     (m, s) => ({ ...m, [s.state]: (m[s.state] ?? 0) + 1 }),
     {},
@@ -105,7 +108,7 @@ function BoardHeader({ pid, data }: { pid: string; data: ShotsResponse }) {
         {(freeForm > 0 || converting) && (
           <Button
             variant="secondary"
-            onClick={() => templatize.mutate()}
+            onClick={() => templatize.mutate(false)}
             disabled={converting || templatize.isPending || busy > 0}
             title="Rewrite unfinished AI-written scenes as brand templates: they then render with no AI cost"
           >
@@ -113,6 +116,17 @@ function BoardHeader({ pid, data }: { pid: string; data: ShotsResponse }) {
             {converting
               ? `Converting ${tz?.done ?? 0}/${tz?.total ?? 0}…`
               : `Convert ${freeForm} to templates`}
+          </Button>
+        )}
+        {freeForm === 0 && !converting && rechoosable > 0 && (
+          <Button
+            variant="secondary"
+            onClick={() => templatize.mutate(true)}
+            disabled={templatize.isPending || busy > 0}
+            title="Pick templates again for a better mix (accepted shots are kept; changed shots need a new take, free to render)"
+          >
+            <LayoutTemplate size={16} />
+            Re-choose templates
           </Button>
         )}
         <Button

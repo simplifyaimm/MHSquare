@@ -125,7 +125,8 @@ const post = (path: string, body?: unknown) =>
   api(path, { method: "POST", body: body === undefined ? undefined : JSON.stringify(body) });
 
 export const usePlan = (pid: string) => useAct(pid, () => post(`/projects/${pid}/plan`));
-export const useTemplatize = (pid: string) => useAct(pid, () => post(`/projects/${pid}/templatize`));
+export const useTemplatize = (pid: string) =>
+  useAct(pid, (redo?: boolean) => post(`/projects/${pid}/templatize${redo ? "?redo=true" : ""}`));
 
 export const TEMPLATE_PREFIX = "@template";
 /** Name of the scene template a shot renders from, or null for a free-form (AI-written) scene. */
