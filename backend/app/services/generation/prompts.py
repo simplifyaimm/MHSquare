@@ -255,7 +255,8 @@ def mode_doc(theme: str) -> str:
 SCENARIO_DOC = """## Mode "scenario" — the real-world example in action, ON BRAND (no cartoons)
 Background: `<div class="mh-bg"></div>`. People are personas, never drawn bodies:
   <div class="sc-persona" style="left:480px;top:300px"><div class="ring"><i data-icon="user-round"></i></div>
-  <b>X</b><small>support engineer</small></div>  — the glowing ring matches the creator's face-cam circle.
+  <b>NAME</b><small>ROLE</small></div>  — the glowing ring matches the creator's face-cam circle. NAME and ROLE
+  come from the visual vocabulary (label + note) and are IDENTICAL in every shot; never invent a different role.
 Speech: <div class="sc-say" style="left:..;top:..">Why did my order fail?</div> (one short line) · thought: .sc-think
 Places / things from the icon library: <div class="sc-place" style="left:..;top:.."><i data-icon="store"></i><b>Bookstore</b></div>
 Status badges: <span class="sc-badge"><i data-icon="circle-check"></i>Order placed</span>

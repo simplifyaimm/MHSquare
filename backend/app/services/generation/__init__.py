@@ -262,12 +262,15 @@ def write_and_render(db: Session, p: Project, shot: Shot, take: Take, model: str
             continue
         take.code = json.dumps(sc.as_dict())
         logs += result.info.get("logs", [])
-        if qa_on and not qa_fix_used and result.qa_frames:
-            verdict, qcost = vision_qa(model, fallbacks, shot, ents, profile, result.qa_frames)
-            cost += qcost
-            take.cost_usd = round(cost, 5)
-            measured = list(result.info.get("layout_warnings") or [])
-            if measured:  # facts measured on the final frame outrank the model's opinion of it
+        measured = list(result.info.get("layout_warnings") or [])
+        reviewable = qa_on and bool(result.qa_frames)
+        if not qa_fix_used and (reviewable or measured):
+            verdict: dict = {"ok": True, "issues": [], "skipped": "frame review off"}
+            if reviewable:
+                verdict, qcost = vision_qa(model, fallbacks, shot, ents, profile, result.qa_frames)
+                cost += qcost
+                take.cost_usd = round(cost, 5)
+            if measured:  # facts measured on the final frame outrank any model's opinion (or its absence)
                 verdict = {**verdict, "ok": False, "measured": measured,
                            "issues": (measured + list(verdict.get("issues", [])))[:6]}  # fmt: skip
             take.meta = {**take.meta, "qa": verdict}
@@ -589,6 +592,16 @@ def standalone_html(db: Session, take: Take) -> str:
     )  # fmt: skip
 
 
+_BLIND = re.compile(  # explicit "I can't see it" phrasings only — never a genuine layout issue
+    r"\b(cannot|can't|can not|unable to|don't|do not|am not able to) (see|view|access) (the |any |your )?"
+    r"(attached )?(image|frame|picture|screenshot)s?"
+    r"|\b(image|frame|picture|screenshot)s? (was|were|is|are)(n't| not) (attached|provided|visible|included|shared)"
+    r"|\bno (frame |video )?(image|frame|picture|screenshot)s? (is |are |was |were )?"
+    r"(attached|provided|visible|included|shared)",
+    re.I,
+)
+
+
 def vision_qa(model: str, fallbacks: list[str], shot: Shot, entities: list[dict], profile: StyleProfile,
               frames: list[Path]) -> tuple[dict, float]:  # fmt: skip
     """The code LLM looks at frames of its own render and judges them against a checklist."""
@@ -603,6 +616,9 @@ def vision_qa(model: str, fallbacks: list[str], shot: Shot, entities: list[dict]
                              max_tokens=1500, temperature=0.1)  # fmt: skip
         from app.services.planner import extract_json
 
+        if _BLIND.search(text):  # a text-only model "reviewing" frames it never saw: its verdict is invented
+            log.warning("vision QA skipped: %s can't see images", res.alias)
+            return {"ok": True, "skipped": f"{res.alias} cannot see images"}, res.cost_usd
         v = extract_json(text)
         verdict = {
             "ok": bool(v.get("ok", True)),

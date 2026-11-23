@@ -38,7 +38,8 @@ SEGMENTS with exact timestamps, which visual types are available, and whether fa
    Be dense, not wordy: each `prompt` ≤ 90 words, each `notes` ≤ 12 words, entity notes ≤ 8 words.
 10. VISUAL VOCABULARY: list every recurring thing (services, tools, data, people such as X) once in
     style_guide.entities with a fixed icon from the icon library, a colour role and a short label. Shots reference
-    them by id in `entities`; every scene then draws them identically. Pick ONE primary_mode for the video and use
+    them by id in `entities`; every scene then draws them identically. For a person, `note` is their on-screen role
+    (2–3 words, e.g. "Java developer"), shown under their name in every shot. Pick ONE primary_mode for the video and use
     at most the number of modes allowed in the BRAND brief — consistency beats variety.
 11. The real-world example (X) runs through the whole video; show X with the scenario mode, never cartoons.
 12. Icon library names: {icons}

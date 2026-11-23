@@ -152,6 +152,48 @@ def test_measured_layout_problems_force_the_polish_even_if_qa_approves(fakes, re
     assert advice in llm.calls[-1]["messages"][-1]["content"]  # the polish request carries the measurement
 
 
+def test_blind_reviews_are_detected_but_real_issues_are_not():
+    from app.services.generation import _BLIND
+
+    for blind in ["No frame is visible here.", "No frame image was attached.", "I cannot see the image you sent.",
+                  "The images were not provided, so I can't judge.", "I'm unable to view the frames."]:  # fmt: skip
+        assert _BLIND.search(blind), blind
+    for real in ['{"ok": false, "issues": ["the title is cut off at the frame edge"]}',
+                 "There is no frame where Kafka appears", "text does not fit the frame", "image is too dark"]:  # fmt: skip
+        assert not _BLIND.search(real), real
+
+
+def test_measured_problems_get_a_polish_even_with_frame_review_off(fakes, ready_project, monkeypatch):  # noqa: F811
+    from app.services import style
+
+    llm, rend = fakes
+    c, csrf, pid = ready_project
+    real_active = style.active
+
+    def no_qa(db):
+        p = real_active(db)
+        p.animation_style = {**(p.animation_style or {}), "qa_review": False}
+        return p
+
+    monkeypatch.setattr(style, "active", no_qa)
+    advice = "composition of the final frame: it is top-heavy (centre y=25%)"
+
+    def render(**req):
+        r = rend.render(**req)
+        r.info = {**r.info, "layout_warnings": [advice]}
+        return r
+
+    monkeypatch.setattr(renderer, "render", render)
+    h = {"X-CSRF-Token": csrf}
+    c.post(f"/api/projects/{pid}/plan", headers=h)
+    sid = c.get(f"/api/projects/{pid}/shots").json()["shots"][1]["id"]
+    c.post(f"/api/projects/{pid}/generate", json={"shot_ids": [sid]}, headers=h)
+    t = next(s for s in c.get(f"/api/projects/{pid}/shots").json()["shots"] if s["id"] == sid)["takes"][-1]
+    assert t["meta"]["fix_rounds"] == 1 and t["meta"]["qa"]["measured"] == [advice]
+    assert not any(x.get("system") and "senior motion designer reviewing" in x["system"] for x in llm.calls)
+    assert advice in llm.calls[-1]["messages"][-1]["content"]
+
+
 def test_cover_concepts_normalised():
     o = covers.normalise({"headline": "Why Kafka sits in the middle", "highlight": ["Kafka", "Redis"],
                           "eyebrow": "event streaming series ep", "icons": ["server", "dragon", "users"],
