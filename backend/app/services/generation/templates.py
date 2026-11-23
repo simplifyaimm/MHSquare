@@ -27,6 +27,9 @@ _STATUS_ICON = {"good": "circle-check", "bad": "circle-x", "warn": "triangle-ale
 _STATUS_CLASS = {"good": "ent-good", "bad": "ent-growth", "warn": "ent-warn", "none": ""}
 
 
+MIN_PX = 20  # smallest readable text at 1080p (the renderer's layout probe flags anything below)
+
+
 class TemplateError(ValueError):
     pass
 
@@ -758,6 +761,14 @@ def build_code(p: Code, ctx: Ctx) -> S.Scene:
     x, y, w, h = ctx.box(bool(p.title or p.eyebrow))
     fs = 30 if len(p.lines) <= 8 else 26 if len(p.lines) <= 11 else 24  # fewer lines → bigger, readable code
     win_w = w if ctx.short or not p.callout else w * 0.66
+    chrome = 40 + 40 + 16 + 16 + 30  # title bar, tabs, padding, status bar
+    hc = h  # the height the window is centred in
+    low = [z for z in ctx.zones if z["y"] > ctx.h * 0.5]
+    if not ctx.short and low and chrome + fs * 1.65 * len(p.lines) > h:
+        # too tall for the box above the face-cam zone: stay left of the zone and use the height down to the footer
+        hc = (ctx.h - 96) - y
+        win_w = min(win_w, min(z["x"] for z in low) - x - 24)
+    fs = max(MIN_PX, min(fs, int((hc - chrome) / (1.65 * len(p.lines)))))
     kinds = {k: hl.kind for hl in p.highlights for k in hl.lines}
     body = "".join(
         f'<span class="ln tp-ln" id="cl{k}">'
@@ -769,12 +780,15 @@ def build_code(p: Code, ctx: Ctx) -> S.Scene:
            f"{e(p.filename)} — Visual Studio Code</span><span class=\"ctl\">—</span><span class=\"ctl\">☐</span>"
            f'<span class="ctl">✕</span></div><div class="vsc-tabs"><span class="vsc-tab">{e(p.filename)}</span></div>'
            f'<div class="vsc-body" style="font-size:{fs}px">{body}</div><div class="vsc-status">{e(p.lang.upper())}  ·  UTF-8</div></div>')  # fmt: skip
-    parts = [f'<div style="position:absolute;left:0;top:50%;transform:translateY(-50%)">{win}</div>']
+    parts = [
+        f'<div style="position:absolute;left:0;top:{hc / 2:.0f}px;transform:translateY(-50%)">{win}</div>'
+    ]
     line_h, body_top = fs * 1.65, 40 + 40 + 16
     win_h = body_top + line_h * len(p.lines) + 16 + 30
     if p.callout:
         ln = max(1, min(p.callout_line or 1, len(p.lines)))
-        cy = h / 2 - win_h / 2 + body_top + line_h * (ln - 0.5)
+        cy = hc / 2 - win_h / 2 + body_top + line_h * (ln - 0.5)
+        cy = min(cy, h - 50)  # the callout card (right of the window) stays above the face-cam zone
         cx = win_w + 60 if not ctx.short else w * 0.1
         cyy = cy if not ctx.short else min(h - 60, h / 2 + win_h / 2 + 70)
         parts.append(f'<div class="tp-card tp-callout" id="co" style="left:{cx:.0f}px;top:{cyy:.0f}px">'

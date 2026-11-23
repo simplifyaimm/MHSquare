@@ -161,3 +161,13 @@ def test_hub_spokes_never_overlap_the_centre_or_each_other_in_landscape(n):
             (ax, ay), (bx, by) = pos[a], pos[b]
             (aw, ah), (bw, bh) = half.get(a, spoke_half), half.get(b, spoke_half)
             assert abs(ax - bx) >= aw + bw or abs(ay - by) >= ah + bh, (a, b, pos[a], pos[b])
+
+
+def test_long_code_stays_readable_and_clear_of_the_face_cam_zone():
+    lines = [f"  line {k} = call(x);" for k in range(14)]
+    sc = T.build("code", {"title": "t", "filename": "A.java", "lang": "java", "lines": lines}, ctx())
+    fs = int(re.search(r'vsc-body" style="font-size:(\d+)px', sc.html).group(1))
+    win_w = float(re.search(r'id="win" style="width:(\d+)px', sc.html).group(1))
+    assert fs >= T.MIN_PX and 120 + win_w <= 1498 - 24  # left of the face-cam zone (x 1498)
+    short = T.build("code", {"filename": "A.java", "lang": "java", "lines": lines[:6]}, ctx())
+    assert "font-size:30px" in short.html and "width:1680px" in short.html  # short code keeps the full box
