@@ -12,7 +12,7 @@ from sqlalchemy.orm import Session
 
 from app.core.db import get_sessionmaker
 from app.llm import client as llm
-from app.llm.errors import LLMError
+from app.llm.errors import ErrorKind, LLMError
 from app.models import AssetKind, Project, ProjectStatus, Shot, ShotState, Transcript
 from app.services import routing, style
 from app.services.generation import templates
@@ -297,10 +297,30 @@ def _plan(db: Session, p: Project) -> None:
     ]
     brief = style.planner_brief(profile, p, has_facecam)
     p.style_profile_version = profile.version
+    direction_cost = 0.0
+    from app.services import direction as DIR  # lazy: direction imports this module
+
+    if not p.direction and script.strip():  # never start from a default theme: decide the approach first
+        try:
+            p.direction = {**DIR.recommend(p, profile, script), "auto": True}
+            direction_cost = p.direction.get("cost_usd", 0.0)
+            db.commit()
+        except DIR.DirectionError as ex:
+            log.warning("creative direction skipped: %s", ex)
+        except LLMError as ex:
+            if ex.kind == ErrorKind.budget:
+                raise
+            log.warning("creative direction skipped: %s", ex)
+    anim = profile.animation_style or {}
+    modes, max_modes = anim.get("enabled_modes"), int(anim.get("max_modes_per_video", 3))
+    if p.direction:
+        brief += "\n\n" + DIR.brief(p.direction)
+        modes = p.direction.get("modes") or modes  # the approved direction narrows the brand's enabled modes
+        max_modes = min(max_modes, len(modes or [])) or max_modes
 
     messages = [{"role": "user", "content": P.user_message(script, segments, duration, has_facecam, allowed,
                                                            p.style_notes, brief)}]  # fmt: skip
-    total_cost, used = 0.0, cfg.planner.model
+    total_cost, used = direction_cost, cfg.planner.model
     plan: Plan | None = None
     last_err = ""
     max_tokens = P.output_budget(len(segments))
@@ -321,9 +341,8 @@ def _plan(db: Session, p: Project) -> None:
         total_cost += res.cost_usd
         used = res.alias
         try:
-            anim = profile.animation_style or {}
             plan = validate_plan(extract_json(text), len(segments), allowed, has_facecam,
-                                 modes=anim.get("enabled_modes"), max_modes=int(anim.get("max_modes_per_video", 3)))  # fmt: skip
+                                 modes=modes, max_modes=max_modes)  # fmt: skip
             break
         except (ValueError, ValidationError, PlanError) as e:
             last_err = str(e)[:4000]

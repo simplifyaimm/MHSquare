@@ -39,6 +39,7 @@ export type Project = {
   audience_level: "beginner" | "advanced";
   topic: string;
   script_check: import("./style").ScriptCheck | null;
+  direction: import("./direction").Direction | null;
   style_profile_version: number | null;
   created_at: string;
   updated_at: string;

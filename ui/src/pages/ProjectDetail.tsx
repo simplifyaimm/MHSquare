@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Link, Navigate, useNavigate, useParams } from "react-router-dom";
 import { ArrowLeft, Check, ImageIcon, Loader2, RotateCcw, Trash2, Wand2 } from "lucide-react";
+import { CreativeDirection } from "@/components/CreativeDirection";
 import { CutsReview } from "@/components/CutsReview";
 import { ProjectStatusChip } from "@/components/ProjectStatusChip";
 import { ShotBoard } from "@/components/ShotBoard";
@@ -97,8 +98,23 @@ export function ProjectDetailPage() {
       {!["cuts_review", "planning", "planned", "ready"].includes(p.status) && <PipelineSteps p={p} />}
       {p.status === "failed" && <FailedCard p={p} />}
       {p.status === "cuts_review" && <CutsReview project={p} />}
+      {(p.status === "ready" || p.status === "planning") && <CreativeDirection p={p} />}
       {(p.status === "ready" || p.status === "planning") && <PlanCard p={p} />}
       {p.status === "planned" && <ShotBoard projectId={p.id} />}
+      {p.status === "planned" && (
+        <details className="rounded-xl border border-border bg-surface p-4">
+          <summary className="cursor-pointer text-sm text-muted">
+            Creative direction
+            {p.direction
+              ? ` · ${p.direction.primary_mode} + ${p.direction.templates.slice(0, 3).join(", ")}`
+              : ""}
+            {" — re-plan or convert to templates to apply changes"}
+          </summary>
+          <div className="mt-4">
+            <CreativeDirection p={p} />
+          </div>
+        </details>
+      )}
       {p.status === "planned" && (
         <details className="rounded-xl border border-border bg-surface p-4">
           <summary className="cursor-pointer text-sm text-muted">Narration and final transcript</summary>
@@ -263,8 +279,8 @@ function PlanCard({ p }: { p: Project }) {
           <div className="min-w-0 flex-1">
             <div className="font-medium">Plan the shot list</div>
             <p className="text-sm text-muted">
-              One AI pass over the final transcript and your script: every moment gets a visual — tech
-              animations, illustrated story scenes, text cards
+              One AI pass over the final transcript and your script, following the creative direction above:
+              every moment gets a visual — brand scene templates, custom animations, text cards
               {p.assets.some((a) => a.kind === "facecam_final") ? ", face-cam" : ""}. You can edit everything
               before generating.
             </p>

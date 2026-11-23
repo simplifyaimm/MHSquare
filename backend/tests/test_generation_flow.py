@@ -41,6 +41,19 @@ SVG = (
 )
 
 
+DIRECTION = {
+    "primary_mode": "tech",
+    "modes": ["tech", "scenario", "story", "nope"],
+    "templates": ["compare", "hub", "dragon"],
+    "persona": "X, a support engineer",
+    "hook": "Kafka log fills up on screen",
+    "pacing": "medium",
+    "density": "balanced",
+    "reasons": ["system explainer"],
+    "avoid": ["cartoons"],
+}
+
+
 class FakeLLM:
     def __init__(self):
         self.calls: list[dict] = []
@@ -51,7 +64,9 @@ class FakeLLM:
         if self.fail_next:
             err, self.fail_next = self.fail_next, None
             raise err
-        if system and "director of mhsquare" in system:
+        if system and "creative director" in system:
+            text = json.dumps(DIRECTION)
+        elif system and "director of mhsquare" in system:
             text = json.dumps(PLAN)
         elif system == GP.CHARACTER_SYSTEM:
             text = SVG

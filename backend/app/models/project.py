@@ -71,6 +71,7 @@ class Project(Base):
     audience_level: Mapped[str] = mapped_column(String(16), default="beginner")
     topic: Mapped[str] = mapped_column(String(300), default="")
     script_check: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    direction: Mapped[dict | None] = mapped_column(JSON, nullable=True)  # creative direction (AI + creator)
     style_profile_version: Mapped[int | None] = mapped_column(Integer, nullable=True)
     facecam_offset_ms: Mapped[int] = mapped_column(Integer, default=0)
     ingest_settings: Mapped[dict] = mapped_column(JSON, default=lambda: dict(DEFAULT_INGEST_SETTINGS))

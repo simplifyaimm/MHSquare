@@ -93,7 +93,10 @@ def _user_message(p: Project, batch: list[Shot]) -> str:
     rows = [{"index": s.index, "mode": s.theme, "seconds": round(s.duration_ms / 1000, 1),
              "narration": s.transcript_text, "brief": s.prompt[:1500],
              "entities": shot_ents.get(str(s.index), [])} for s in batch]  # fmt: skip
-    return (f"Video: {sg.get('summary', '')}\nVocabulary: {json.dumps(vocab, ensure_ascii=False)}\n\n"
+    from app.services.direction import brief
+
+    direction = brief(p.direction)
+    return (f"Video: {sg.get('summary', '')}\n{direction}\nVocabulary: {json.dumps(vocab, ensure_ascii=False)}\n\n"
             f"Shots:\n{json.dumps(rows, ensure_ascii=False, indent=1)}")  # fmt: skip
 
 

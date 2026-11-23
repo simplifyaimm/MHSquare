@@ -1,9 +1,10 @@
 import json
 import uuid
 from pathlib import Path
+from typing import Literal
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Request, UploadFile, status
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -47,6 +48,7 @@ def _project_out(p: Project) -> ProjectOut:
         facecam_offset_ms=p.facecam_offset_ms, ingest_settings=p.ingest_settings or {},
         content_type=p.content_type or "long_form", pillar=p.pillar, topic_kind=p.topic_kind,
         audience_level=p.audience_level or "beginner", topic=p.topic or "", script_check=p.script_check,
+        direction=p.direction,
         style_profile_version=p.style_profile_version,
         created_at=p.created_at, updated_at=p.updated_at,
         assets=[_asset_out(a) for a in sorted(p.assets, key=lambda a: a.created_at) if a.kind in VISIBLE_KINDS],
@@ -347,6 +349,52 @@ def script_check(project_id: uuid.UUID, db: Session = Depends(get_db)):
     p.script_check = result
     db.commit()
     return result
+
+
+class DirectionEdit(BaseModel):
+    primary_mode: str | None = None
+    modes: list[str] | None = None
+    templates: list[str] | None = None
+    persona: str | None = Field(None, max_length=60)
+    hook: str | None = Field(None, max_length=240)
+    pacing: Literal["calm", "medium", "fast"] | None = None
+    density: Literal["sparse", "balanced", "rich"] | None = None
+
+
+@router.post("/projects/{project_id}/direction")
+def recommend_direction(project_id: uuid.UUID, db: Session = Depends(get_db)):
+    """AI creative direction for THIS script: modes, templates, persona, hook, pacing (one small call)."""
+    from app.llm.errors import LLMError
+    from app.services import direction as DIR
+    from app.services import style as S
+
+    p = _get_project(db, project_id)
+    script = pipeline.latest_asset(db, p.id, AssetKind.script)
+    if script is None:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Upload the script first")
+    text = get_storage().path(script.storage_key).read_text("utf-8-sig")
+    try:
+        p.direction = DIR.recommend(p, S.active(db), text)
+    except DIR.DirectionError as e:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(e)) from e
+    except LLMError as e:
+        raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, f"AI unavailable: {e}"[:500]) from e
+    db.commit()
+    return p.direction
+
+
+@router.put("/projects/{project_id}/direction")
+def edit_direction(project_id: uuid.UUID, body: DirectionEdit, db: Session = Depends(get_db)):
+    from app.services import direction as DIR
+    from app.services import style as S
+
+    p = _get_project(db, project_id)
+    try:
+        p.direction = DIR.edit(p.direction, body.model_dump(exclude_none=True), S.active(db))
+    except DIR.DirectionError as e:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(e)) from e
+    db.commit()
+    return p.direction
 
 
 @router.post("/projects/{project_id}/mark-final")
