@@ -250,19 +250,24 @@ def chat(
     temperature: float = 0.4,
     timeout: float = 600,
 ) -> tuple[str, CallResult]:
-    """Chat completion → (text, result)."""
+    """Chat completion → (text, result). A reply cut off at max_tokens (reasoning models spend hidden tokens)
+    moves on to the next alias in the chain; the cut-off call's cost is still counted."""
     msgs = ([{"role": "system", "content": system}] if system else []) + messages
-    used, resp = _call(
-        "/chat/completions",
-        {"messages": msgs, "max_tokens": max_tokens, "temperature": temperature},
-        [alias, *(fallbacks or [])],
-        timeout,
-    )
-    data = resp.json()
-    text = data["choices"][0]["message"].get("content") or ""
-    if data["choices"][0].get("finish_reason") == "length":
-        raise LLMError(ErrorKind.invalid, f"{used}: response cut off at max_tokens={max_tokens}")
-    return text, CallResult(alias=used, cost_usd=_cost(resp), data={"usage": data.get("usage", {})})
+    chain, wasted = [alias, *(fallbacks or [])], 0.0
+    while True:
+        used, resp = _call("/chat/completions",
+                           {"messages": msgs, "max_tokens": max_tokens, "temperature": temperature},
+                           chain, timeout)  # fmt: skip
+        data = resp.json()
+        text = data["choices"][0]["message"].get("content") or ""
+        if data["choices"][0].get("finish_reason") != "length":
+            return text, CallResult(alias=used, cost_usd=_cost(resp) + wasted,
+                                    data={"usage": data.get("usage", {})})  # fmt: skip
+        wasted += _cost(resp)
+        chain = chain[chain.index(used) + 1 :]
+        if not chain:
+            raise LLMError(ErrorKind.invalid, f"{used}: response cut off at max_tokens={max_tokens}")
+        log.warning("%s cut off at max_tokens=%d; trying %s", used, max_tokens, chain[0])
 
 
 def generate_image(alias: str, prompt: str, *, size: str = "1536x1024", fallbacks: list[str] | None = None,

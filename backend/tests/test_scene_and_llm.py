@@ -136,6 +136,22 @@ def test_provider_outage_fails_over_to_the_next_provider(monkeypatch, calls, sta
     assert calls[-1] == "planner-llm" and "code-llm-backup" in calls
 
 
+def test_cut_off_reply_moves_to_the_next_model_and_counts_its_cost(monkeypatch, calls):
+    cut = {"choices": [{"message": {"content": "<half a scene"}, "finish_reason": "length"}], "usage": {}}
+
+    def post(url, headers, json, timeout):
+        calls.append(json["model"])
+        return _ok("full scene") if json["model"] == "code-llm-backup" else _resp(200, cut, 0.03)
+
+    monkeypatch.setattr(httpx, "post", post)
+    text, res = client.chat("code-llm", [], fallbacks=["code-llm-backup"])
+    assert text == "full scene" and res.alias == "code-llm-backup" and res.cost_usd == pytest.approx(0.042)
+    assert calls == ["code-llm", "code-llm-backup"]
+    monkeypatch.setattr(httpx, "post", lambda url, headers, json, timeout: _resp(200, cut, 0.03))
+    with pytest.raises(LLMError, match="cut off"):
+        client.chat("code-llm", [])
+
+
 def test_every_provider_down_pauses_instead_of_failing(monkeypatch, calls):
     def post(url, headers, json, timeout):
         calls.append(json["model"])
