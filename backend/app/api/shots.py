@@ -14,6 +14,7 @@ from app.core.media_urls import signed_media_url
 from app.models import AssetKind, Project, ProjectStatus, Shot, ShotState, Take
 from app.services import generation, planner, routing
 from app.services.budget.estimate import estimate_shot
+from app.services.generation import templates
 from app.services.ingest import tts
 from app.services.ingest.pipeline import latest_asset
 from app.workers import tasks
@@ -76,8 +77,14 @@ def _take_out(t: Take) -> TakeOut:
     )  # fmt: skip
 
 
+def _is_template(s: Shot) -> bool:
+    return s.visual_type == "code_animation" and s.prompt.lstrip().startswith(templates.PREFIX)
+
+
 def _shot_out(s: Shot, cfg: routing.RoutingConfig) -> ShotOut:
     r = routing.resolve(s.visual_type, s.override_model, cfg)
+    if _is_template(s):  # scene template: deterministic render, no AI cost
+        r = routing.Resolved(s.visual_type, "template", "template", [], r.route)
     return ShotOut(
         id=s.id, index=s.index, start_ms=s.start_ms, end_ms=s.end_ms, transcript_text=s.transcript_text,
         visual_type=s.visual_type, theme=s.theme, prompt=s.prompt, notes=s.notes,
@@ -125,6 +132,21 @@ def plan(project_id: uuid.UUID, db: Session = Depends(get_db)):
         raise HTTPException(status.HTTP_409_CONFLICT, str(e)) from e
     db.refresh(p)
     return {"status": p.status}
+
+
+@router.post("/projects/{project_id}/templatize", status_code=status.HTTP_202_ACCEPTED)
+def templatize(project_id: uuid.UUID, db: Session = Depends(get_db)):
+    """Rewrite unfinished free-form animation shots as scene templates (keeps timing and finished shots)."""
+    from app.services.planner import templatize as TZ
+
+    p = _project(db, project_id)
+    if p.status != ProjectStatus.planned:
+        raise HTTPException(status.HTTP_409_CONFLICT, "Plan the shot list first")
+    if ((p.plan_meta or {}).get("templatize") or {}).get("status") == "running":
+        raise HTTPException(status.HTTP_409_CONFLICT, "Already converting")
+    if not TZ.candidates(db, p):
+        raise HTTPException(status.HTTP_409_CONFLICT, "No unfinished free-form animation shots to convert")
+    return {"queued": TZ.begin(db, p)}
 
 
 @router.get("/projects/{project_id}/shots")

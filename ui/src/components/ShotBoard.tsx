@@ -6,6 +6,7 @@ import {
   Clapperboard,
   Download,
   Film,
+  LayoutTemplate,
   Loader2,
   Merge,
   Pencil,
@@ -33,6 +34,8 @@ import {
   useRenderFinal,
   useShots,
   useSplit,
+  useTemplatize,
+  templateName,
   type Shot,
   type ShotsResponse,
   type ExplainMode,
@@ -72,6 +75,15 @@ export function ShotBoard({ projectId }: { projectId: string }) {
 
 function BoardHeader({ pid, data }: { pid: string; data: ShotsResponse }) {
   const generate = useGenerate(pid);
+  const templatize = useTemplatize(pid);
+  const tz = data.plan_meta.templatize;
+  const converting = tz?.status === "running";
+  const freeForm = data.shots.filter(
+    (s) =>
+      s.visual_type === "code_animation" &&
+      !templateName(s) &&
+      !["review", "accepted", ...BUSY_STATES].includes(s.state),
+  ).length;
   const counts = data.shots.reduce<Record<string, number>>(
     (m, s) => ({ ...m, [s.state]: (m[s.state] ?? 0) + 1 }),
     {},
@@ -90,11 +102,35 @@ function BoardHeader({ pid, data }: { pid: string; data: ShotsResponse }) {
             {pending ? ` · est. $${data.estimate_usd.toFixed(2)} remaining` : ""}
           </div>
         </div>
-        <Button onClick={() => generate.mutate(undefined)} disabled={!pending || generate.isPending}>
+        {(freeForm > 0 || converting) && (
+          <Button
+            variant="secondary"
+            onClick={() => templatize.mutate()}
+            disabled={converting || templatize.isPending || busy > 0}
+            title="Rewrite unfinished AI-written scenes as brand templates: they then render with no AI cost"
+          >
+            {converting ? <Loader2 size={16} className="animate-spin" /> : <LayoutTemplate size={16} />}
+            {converting
+              ? `Converting ${tz?.done ?? 0}/${tz?.total ?? 0}…`
+              : `Convert ${freeForm} to templates`}
+          </Button>
+        )}
+        <Button
+          onClick={() => generate.mutate(undefined)}
+          disabled={!pending || generate.isPending || converting}
+        >
           {busy ? <Loader2 size={16} className="animate-spin" /> : <Wand2 size={16} />}
           Generate {pending ? `${pending} shot${pending > 1 ? "s" : ""}` : "all"}
         </Button>
+        {tz && tz.status !== "running" && (
+          <p className={`w-full text-sm ${tz.status === "done" ? "text-muted" : "text-warning"}`}>
+            Templates: {tz.converted} of {tz.total} shots converted (render with no AI cost)
+            {tz.kept ? `, ${tz.kept} kept as custom scenes` : ""} · ${tz.cost_usd.toFixed(2)}
+            {tz.status !== "done" && tz.error ? ` — stopped: ${tz.error}` : ""}
+          </p>
+        )}
         {generate.error && <p className="w-full text-sm text-danger">{generate.error.message}</p>}
+        {templatize.error && <p className="w-full text-sm text-danger">{templatize.error.message}</p>}
       </CardContent>
     </Card>
   );
@@ -262,7 +298,11 @@ function ShotReview({
           style={{ background: TYPE_COLOR[shot.visual_type] }}
         >
           {TYPE_LABEL[shot.visual_type]}
-          {shot.visual_type === "code_animation" ? ` · ${shot.theme}` : ""}
+          {shot.visual_type === "code_animation"
+            ? templateName(shot)
+              ? ` · template: ${templateName(shot)}`
+              : ` · ${shot.theme}`
+            : ""}
         </span>
         <StateChip state={shot.state} />
         <Button

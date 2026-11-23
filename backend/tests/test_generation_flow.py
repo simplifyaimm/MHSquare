@@ -303,6 +303,43 @@ def test_template_shot_renders_without_any_ai_call(fakes, ready_project):
     assert "50,000" in rend.requests[-1]["html"] and "tl.to(o" in rend.requests[-1]["js"]
 
 
+def test_convert_unfinished_shots_to_templates(fakes, ready_project, monkeypatch):
+    import uuid as _uuid
+
+    from app.models import Shot
+    from app.services.generation import templates as T
+
+    llm, _ = fakes
+    c, csrf, pid = ready_project
+    h = {"X-CSRF-Token": csrf}
+    c.post(f"/api/projects/{pid}/plan", headers=h)  # shots 0 (scenario) and 1 (tech) are code_animation
+    seen = []
+
+    def chat(alias, messages, *, system=None, **kw):
+        seen.append({"system": system, "user": messages[0]["content"]})
+        return json.dumps({"shots": [
+            {"index": 0, "template": {"name": "scenario", "params": {"persona": {"entity": "x"}, "say": "Hi!"}}},
+            {"index": 1, "template": {"name": "steps", "params": {"steps": []}}},  # invalid → stays free-form
+        ]}), client.CallResult(alias=alias, cost_usd=0.01)  # fmt: skip
+
+    monkeypatch.setattr(client, "chat", chat)
+    r = c.post(f"/api/projects/{pid}/templatize", headers=h)
+    assert r.status_code == 202 and r.json()["queued"] == 2
+    data = c.get(f"/api/projects/{pid}/shots").json()
+    tz = data["plan_meta"]["templatize"]
+    assert (tz["status"], tz["converted"], tz["kept"], tz["cost_usd"]) == ("done", 1, 1, 0.01)
+    s0, s1 = data["shots"][0], data["shots"][1]
+    assert T.parse(s0["prompt"])[0] == "scenario" and "brief: X persona appears" in s0["notes"]
+    assert s0["generator"] == "template" and s0["estimate_usd"] == 0
+    assert T.parse(s1["prompt"]) is None  # kept its free-form brief
+    assert "- scenario:" in seen[0]["system"] and '"narration"' in seen[0]["user"]
+    # nothing left that is both unfinished and free-form except shot 1 → converting again still allowed
+    with get_sessionmaker()() as db:
+        db.query(Shot).filter(Shot.project_id == _uuid.UUID(pid), Shot.index == 1).one().state = "review"
+        db.commit()
+    assert c.post(f"/api/projects/{pid}/templatize", headers=h).status_code == 409
+
+
 def test_broken_template_json_fails_with_a_clear_message(fakes, ready_project):
     import uuid as _uuid
 

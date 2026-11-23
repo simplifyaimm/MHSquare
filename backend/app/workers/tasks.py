@@ -77,6 +77,22 @@ pipeline.register_dispatch("apply_cuts", lambda pid: ingest_apply_cuts.delay(pid
 planner.register_dispatch("plan", lambda pid: plan_run.delay(pid))
 
 
+@celery_app.task(name="plan.templatize")
+def plan_templatize(project_id: str) -> None:
+    from app.services.planner import templatize
+
+    templatize.run(project_id)
+
+
+def _register_templatize() -> None:
+    from app.services.planner import templatize
+
+    templatize.register_dispatch(lambda pid: plan_templatize.delay(pid))
+
+
+_register_templatize()
+
+
 # ---------------------------------------------------------------- covers
 @celery_app.task(name="media.cutout", acks_late=False)  # ML worker; no redelivery loop if it OOMs
 def media_cutout(brand_asset_id: str) -> None:

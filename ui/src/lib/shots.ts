@@ -62,6 +62,15 @@ export type ShotsResponse = {
     model?: string;
     preview?: { status: string; error?: string; missing_shots?: number };
     final?: { status: string; error?: string; missing_shots?: number };
+    templatize?: {
+      status: "running" | "done" | "paused" | "failed";
+      total: number;
+      done: number;
+      converted: number;
+      kept: number;
+      cost_usd: number;
+      error?: string | null;
+    };
   };
   shots: Shot[];
   estimate_usd: number;
@@ -94,6 +103,7 @@ export function useShots(pid: string, enabled = true) {
         d.status === "planning" ||
         d.plan_meta.preview?.status === "running" ||
         d.plan_meta.final?.status === "running" ||
+        d.plan_meta.templatize?.status === "running" ||
         d.shots.some((s) => BUSY_STATES.includes(s.state));
       return busy ? 2500 : false;
     },
@@ -115,6 +125,14 @@ const post = (path: string, body?: unknown) =>
   api(path, { method: "POST", body: body === undefined ? undefined : JSON.stringify(body) });
 
 export const usePlan = (pid: string) => useAct(pid, () => post(`/projects/${pid}/plan`));
+export const useTemplatize = (pid: string) => useAct(pid, () => post(`/projects/${pid}/templatize`));
+
+export const TEMPLATE_PREFIX = "@template";
+/** Name of the scene template a shot renders from, or null for a free-form (AI-written) scene. */
+export const templateName = (s: Pick<Shot, "visual_type" | "prompt">) =>
+  s.visual_type === "code_animation" && s.prompt.trimStart().startsWith(TEMPLATE_PREFIX)
+    ? s.prompt.trimStart().slice(TEMPLATE_PREFIX.length).split("\n")[0].trim()
+    : null;
 export const useGenerate = (pid: string) =>
   useAct(pid, (shot_ids?: string[]) => post(`/projects/${pid}/generate`, { shot_ids: shot_ids ?? null }));
 export const useRegenerate = (pid: string) =>
