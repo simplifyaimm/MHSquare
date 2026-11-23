@@ -74,7 +74,12 @@ PROBE_JS = r"""
     const svgRoot = el.closest('svg');
     if (svgRoot && svgRoot !== el) continue;           // judge inline SVGs as a whole
     const ownText = [...el.childNodes].some(n => n.nodeType === 3 && n.textContent.trim());
-    if (!(ownText || el.children.length === 0 || el.tagName.toLowerCase() === 'svg')) continue;
+    const leaf = ownText || el.children.length === 0 || el.tagName.toLowerCase() === 'svg';
+    let painted = false;  // a card/panel: its background counts for the composition, like its text
+    if (!leaf) { const cs = getComputedStyle(el);
+      painted = cs.backgroundImage !== 'none' || !/rgba\(0, 0, 0, 0\)|transparent/.test(cs.backgroundColor)
+        || parseFloat(cs.borderTopWidth) > 0; }
+    if (!leaf && !painted) continue;
     const r = el.getBoundingClientRect();
     if (r.width < 4 || r.height < 4 || r.width * r.height > 0.6 * W * H || !visible(el)) continue;
     const x = r.left - S.left, y = r.top - S.top;
