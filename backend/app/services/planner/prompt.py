@@ -42,6 +42,12 @@ SEGMENTS with exact timestamps, which visual types are available, and whether fa
     at most the number of modes allowed in the BRAND brief — consistency beats variety.
 11. The real-world example (X) runs through the whole video; show X with the scenario mode, never cartoons.
 12. Icon library names: {icons}
+13. COLOURS BY ROLE ONLY. In prompts write "in accent", "warn", "good" or "neutral" — never a colour name (teal,
+    red, blue…). The accent is the pillar colour from the BRAND brief; naming a different colour breaks the brand.
+14. Every text_card shot has a `card` object with the EXACT on-screen text, rendered verbatim by a template:
+    eyebrow (optional mono tag, ≤ 4 words, e.g. "02 · THE ANSWER"), headline (≤ 9 words, the line that matters),
+    sub (optional, ≤ 10 words), highlight (0–2 words of the headline/sub shown in the accent colour).
+    Its `prompt` is a one-line note (e.g. "chapter card"); never put instructions where text is expected.
 
 ## Output
 Reply with ONLY a JSON object (no prose) of this shape:
@@ -57,7 +63,10 @@ Reply with ONLY a JSON object (no prose) of this shape:
   "shots": [
     {"from_segment": 1, "to_segment": 2, "visual_type": "code_animation", "theme": "tech", "entities": ["kafka"],
      "prompt": "...", "depends_on_previous": false, "uses_character": false, "characters": [],
-     "notes": "why this visual"}
+     "notes": "why this visual"},
+    {"from_segment": 3, "to_segment": 3, "visual_type": "text_card", "theme": "tech", "entities": [],
+     "prompt": "chapter card", "card": {"eyebrow": "02 · THE ANSWER", "headline": "Java isn't baggage",
+     "sub": "It's your edge", "highlight": ["edge"]}, "notes": "chapter break"}
   ]
 }"""
 

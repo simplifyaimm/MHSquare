@@ -23,6 +23,7 @@ VENDOR = Path("/opt/runner/vendor")
 OUT = Path("/out")
 MAX_CONCURRENT = 2
 RENDER_TIMEOUT_S = 180
+SECONDS_PER_FRAME = 0.8  # ceiling for runaway scenes; a healthy render is far below this
 _slots = threading.Semaphore(MAX_CONCURRENT)
 _JOB = re.compile(r"^[a-zA-Z0-9_-]{6,64}$")
 
@@ -163,9 +164,9 @@ def render(req: dict) -> dict:
     qa_names: list[str] = []
 
     ff = subprocess.Popen(  # noqa: S603
-        ["ffmpeg", "-nostdin", "-v", "error", "-y", "-f", "image2pipe", "-framerate", str(fps), "-c:v", "png",
+        ["ffmpeg", "-nostdin", "-v", "error", "-y", "-f", "image2pipe", "-framerate", str(fps), "-c:v", "mjpeg",
          "-i", "-", "-vf", f"scale={int(w * scale)}:{int(h * scale)}:flags=lanczos,format=yuv420p",
-         "-c:v", "libx264", "-preset", "medium", "-crf", "14", "-r", str(fps), "-frames:v", str(frames),
+         "-c:v", "libx264", "-preset", "fast", "-crf", "14", "-r", str(fps), "-frames:v", str(frames),
          "-movflags", "+faststart", str(out)],
         stdin=subprocess.PIPE, stderr=subprocess.PIPE,
     )  # fmt: skip
@@ -202,13 +203,14 @@ def render(req: dict) -> dict:
             mid = frames // 2
             qa_at = {min(frames - 1, max(0, round(float(t) * fps))): k for k, t in enumerate(req.get("qa_frames") or [])}
             qa_clip = {"x": 0, "y": 0, "width": w, "height": h, "scale": min(1.0, 960 / w)}
+            limit_s = max(RENDER_TIMEOUT_S, frames * SECONDS_PER_FRAME)  # long shots get proportionally longer
             for i in range(frames):
-                if time.monotonic() - started > RENDER_TIMEOUT_S:
-                    raise TimeoutError(f"render exceeded {RENDER_TIMEOUT_S}s at frame {i}/{frames}")
+                if time.monotonic() - started > limit_s:
+                    raise TimeoutError(f"render exceeded {limit_s:.0f}s at frame {i}/{frames}")
                 page.evaluate("(t) => window.__mhSeek(t)", i / fps)
-                shot = cdp.send("Page.captureScreenshot", {"format": "png", "optimizeForSpeed": True})
-                png = base64.b64decode(shot["data"])
-                ff.stdin.write(png)
+                shot = cdp.send("Page.captureScreenshot", {"format": "jpeg", "quality": 95, "optimizeForSpeed": True})
+                frame = base64.b64decode(shot["data"])
+                ff.stdin.write(frame)
                 if i == mid:
                     thumb.write_bytes(base64.b64decode(cdp.send("Page.captureScreenshot", {"format": "jpeg", "quality": 85})["data"]))
                 if i in qa_at:  # downscaled frames for the vision-QA review
@@ -309,8 +311,14 @@ class Handler(BaseHTTPRequestHandler):
             return self._json(400, {"error": str(e)})
         if self.path == "/standalone":
             return self._json(200, {"html": build_standalone(req)})
-        with _slots:
+        # Never queue inside the HTTP call: waiting here would eat the client's render timeout. Say "busy" and
+        # let the client retry; the render timeout then only measures actual rendering.
+        if not _slots.acquire(timeout=2):
+            return self._json(503, {"error": "busy", "busy": True})
+        try:
             self._json(200, render(req))
+        finally:
+            _slots.release()
 
     def log_message(self, fmt: str, *args) -> None:
         pass

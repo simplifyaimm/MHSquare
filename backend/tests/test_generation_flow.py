@@ -31,7 +31,8 @@ PLAN = {
         {"from_segment": 2, "to_segment": 2, "visual_type": "code_animation", "theme": "tech",
          "prompt": "Card 'Kafka' with eyebrow 'COMMIT LOG'"},
         {"from_segment": 3, "to_segment": 3, "visual_type": "text_card", "theme": "tech",
-         "prompt": "Title 'That is all' sub 'Thanks for watching'"},
+         "prompt": "closing card",
+         "card": {"eyebrow": "THE END", "headline": "That is all", "sub": "Thanks for watching", "highlight": ["all"]}},
     ],
 }  # fmt: skip
 SVG = (

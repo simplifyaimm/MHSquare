@@ -64,6 +64,21 @@ class StyleGuide(BaseModel):
     entities: list[Entity] = Field(default_factory=list)  # visual vocabulary, reused by every shot
 
 
+class Card(BaseModel):
+    """Exact on-screen text of a text_card shot (rendered verbatim by the template)."""
+
+    eyebrow: str = Field("", max_length=40)
+    headline: str = Field(min_length=1, max_length=70)
+    sub: str = Field("", max_length=80)
+    highlight: list[str] = Field(default_factory=list, max_length=3)
+
+    def as_prompt(self) -> str:
+        lines = [f"eyebrow: {self.eyebrow}" if self.eyebrow else "", f"headline: {self.headline}",
+                 f"sub: {self.sub}" if self.sub else "",
+                 f"highlight: {', '.join(self.highlight)}" if self.highlight else ""]  # fmt: skip
+        return "\n".join(x for x in lines if x)
+
+
 class PlannedShot(BaseModel):
     from_segment: int = Field(ge=1)
     to_segment: int = Field(ge=1)
@@ -74,6 +89,7 @@ class PlannedShot(BaseModel):
     depends_on_previous: bool = False
     uses_character: bool = False
     characters: list[str] = Field(default_factory=list)
+    card: Card | None = None  # required for text_card
     notes: str = ""
 
 
@@ -134,6 +150,10 @@ def validate_plan(data: dict, n_segments: int, allowed: list[str], has_facecam: 
             errors.append(f"shot {i}: visual_type {s.visual_type} is not available ({', '.join(allowed)})")
         if s.visual_type == "a_roll" and not has_facecam:
             errors.append(f"shot {i}: a_roll used but there is no face-cam")
+        if s.visual_type == "text_card" and s.card is None:
+            errors.append(f"shot {i}: text_card needs a `card` object with the exact on-screen text")
+        if s.card and len(s.card.headline.split()) > 9:
+            errors.append(f"shot {i}: card headline has more than 9 words")
         expected = s.to_segment + 1
     if expected != n_segments + 1:
         errors.append(f"shots end at segment {expected - 1}, but there are {n_segments} segments")
@@ -186,7 +206,9 @@ def build_shots(plan: Plan, segments: list[dict], words: list[dict], duration_ms
             if i == len(plan.shots) - 1
             else segments[plan.shots[i + 1].from_segment - 1]["start_ms"]
         )
-        base = s.model_dump(exclude={"from_segment", "to_segment"})
+        base = s.model_dump(exclude={"from_segment", "to_segment", "card"})
+        if s.visual_type == "text_card" and s.card:  # canonical, editable, rendered verbatim
+            base["prompt"] = s.card.as_prompt()
         if s.visual_type == "ai_clip" and end - start > MAX_AI_CLIP_MS:
             parts = -(-(end - start) // MAX_AI_CLIP_MS)
             step = (end - start) // parts

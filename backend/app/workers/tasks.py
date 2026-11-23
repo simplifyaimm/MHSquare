@@ -43,9 +43,9 @@ def plan_run(project_id: str) -> None:
     planner.run_planning(project_id)
 
 
-@celery_app.task(name="gen.take", acks_late=True, soft_time_limit=1200, time_limit=1260)
+@celery_app.task(name="gen.take", acks_late=True, soft_time_limit=3600, time_limit=3660)
 def gen_take(take_id: str) -> None:
-    """Hard cap of ~20 min per take (LLM + up to 3 renders); a hung take fails instead of blocking a slot."""
+    """Hard cap of 1 h per take (renderer-slot waits + LLM + up to 3 renders); a hung take fails, never hangs."""
     generation.run_take(take_id)
 
 

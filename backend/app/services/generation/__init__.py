@@ -284,21 +284,64 @@ def write_and_render(db: Session, p: Project, shot: Shot, take: Take, model: str
 # ---------------------------------------------------------------- text card (template, free)
 
 
-_QUOTED = re.compile(r"[\"“”']([^\"“”']{2,80})[\"“”']")
+# a quoted value: the closing quote is not followed by a letter, so apostrophes (isn't, Robin's) stay inside
+_Q = (r"(?:(?<![A-Za-z])['‘]((?:[^'‘’\n]|['’](?=[A-Za-z]))+?)['’](?![A-Za-z])"  # 'Java isn't baggage.'
+      r"|\"([^\"\n]+?)\"|“([^”\n]+?)”)")  # fmt: skip
+_LABELLED = re.compile(r"([A-Za-z][A-Za-z -]{0,40}?)(?:\s+in\s+[^:'\"]{1,30})?:\s*" + _Q)
+_QUOTED = re.compile(_Q)
+
+
+def _val(groups: tuple) -> str:
+    return next((g for g in groups if g), "")
+
+
+_CARD_LINE = re.compile(r"^\s*(eyebrow|headline|sub|highlight)\s*:\s*(.+?)\s*$", re.I | re.M)
+
+
+def card_fields(prompt: str) -> dict:
+    """Text-card fields. Canonical form (written by the planner): `eyebrow:/headline:/sub:/highlight:` lines.
+    Older free-text prompts: labelled quotes (Tag: '…', Headline: '…', Sub-line in Poppins: '…'), then the first
+    two quoted strings. Never prose — instructions must not reach the screen."""
+    f = {"eyebrow": "", "headline": "", "sub": "", "highlight": []}
+    lines = {k.lower(): v for k, v in _CARD_LINE.findall(prompt)}
+    if lines.get("headline"):
+        f.update({k: lines.get(k, "") for k in ("eyebrow", "headline", "sub")})
+        f["highlight"] = [w.strip() for w in lines.get("highlight", "").split(",") if w.strip()]
+        return f
+    for label, *vals in _LABELLED.findall(prompt):
+        lab, val = label.lower(), _val(vals)
+        key = ("sub" if any(k in lab for k in ("sub", "second", "meta line", "subtitle")) else
+               "eyebrow" if any(k in lab for k in ("tag", "eyebrow", "kicker", "label")) else "headline")  # fmt: skip
+        if not f[key]:
+            f[key] = val.strip()
+    if not f["headline"]:
+        quoted = [_val(q).strip() for q in _QUOTED.findall(prompt)]
+        f["headline"] = quoted[0] if quoted else ""
+        f["sub"] = f["sub"] or (quoted[1] if len(quoted) > 1 else "")
+    return f
+
+
+def _highlighted(text: str, words: list[str]) -> str:
+    out = htmllib.escape(text)
+    for w in sorted(words, key=len, reverse=True):
+        if w:
+            out = re.sub(
+                rf"(?i)\b({re.escape(htmllib.escape(w))})\b", r'<span class="hl">\1</span>', out, count=1
+            )
+    return out
 
 
 def text_card_scene(shot: Shot) -> S.Scene:
-    quoted = _QUOTED.findall(shot.prompt)
-    words = shot.transcript_text.split()
-    title = quoted[0] if quoted else " ".join(words[:7]).rstrip(",.;:") or "…"
-    sub = quoted[1] if len(quoted) > 1 else ""
-    eyebrow = quoted[2] if len(quoted) > 2 else ""
+    f = card_fields(shot.prompt)
+    title = f["headline"] or " ".join(shot.transcript_text.split()[:7]).rstrip(",.;:") or "…"
+    sub, eyebrow = f["sub"], f["eyebrow"]
+    size = "xl" if len(title) <= 26 else "lg" if len(title) <= 44 else ""
     e = htmllib.escape
     html = f"""<div class="mh-bg"></div><div class="mh-glow" style="left:510px;top:90px"></div>
-<div class="center tc col gap-24" id="card" style="width:calc(var(--stage-w) - 2*var(--safe-x));align-items:center">
-  {f'<div class="mh-eyebrow" id="eb">{e(eyebrow)}</div>' if eyebrow else ""}
-  <div class="mh-title xl" id="tt">{e(title)}</div>
-  {f'<div class="mh-sub" id="sb" style="font-size:32px">{e(sub)}</div>' if sub else ""}
+<div class="center tc col gap-24" id="card" style="width:calc(var(--stage-w) - 2*var(--safe-x) - 160px);align-items:center">
+  {f'<div class="mh-eyebrow" id="eb" style="font-size:26px">{e(eyebrow)}</div>' if eyebrow else ""}
+  <div class="mh-title {size}" id="tt" style="text-wrap:balance">{_highlighted(title, f["highlight"])}</div>
+  {f'<div class="mh-sub" id="sb" style="font-size:36px;text-wrap:balance">{_highlighted(sub, f["highlight"])}</div>' if sub else ""}
 </div>"""
     beats = ["tl.fromTo('#card', {scale:1}, {scale:1.035, duration:D, ease:'none'}, 0);"]
     if eyebrow:

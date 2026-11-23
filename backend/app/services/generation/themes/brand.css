@@ -16,6 +16,7 @@
 .mh-header{position:absolute;left:var(--safe-x);top:var(--safe-top);display:flex;flex-direction:column;gap:10px;max-width:calc(var(--stage-w) - 2*var(--safe-x))}
 .mh-eyebrow{font:500 17px/1 var(--f-mono);letter-spacing:.22em;text-transform:uppercase;color:var(--accent)}
 .mh-title{font:600 64px/1.02 var(--f-head);letter-spacing:.01em;text-transform:uppercase;color:#ffffff}
+.mh-title .hl,.mh-sub .hl{color:var(--accent)}
 .mh-title.xl{font-size:110px}.mh-title.lg{font-size:84px}.mh-title.sm{font-size:46px}
 .mh-header .mh-title{font-size:54px}
 .mh-sub{font:400 26px/1.4 var(--f-body);color:#8a9ab3}

@@ -176,6 +176,8 @@ def scene_user(*, prompt: str, duration_ms: int, words: list[dict], style_guide:
         f"Narration in this shot: “{transcript}”",
         f"Spoken word timings (seconds from shot start):\n{timing}",
         f"Shot brief from the director:\n{prompt}",
+        "Colour words in the brief (teal, red, blue…) mean ROLES, not hex values: the highlighted thing uses "
+        "var(--accent); problems var(--warn); success var(--good); everything else neutral. Brand palette wins.",
         f"Global style guide: {style_guide.get('summary', '')} | mood: {style_guide.get('mood', '')} | "
         f"camera: {style_guide.get('camera_language', '')}",
         f"CHARACTERS (use mhCharacter):\n{chars}" if theme == "story" else "",

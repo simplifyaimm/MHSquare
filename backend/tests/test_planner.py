@@ -15,8 +15,46 @@ SG = {"summary": "navy", "characters": [{"id": "robin", "name": "Robin", "descri
 
 
 def shot(f, t, vt="code_animation", **kw):
+    card = {"card": {"headline": "A short headline"}} if vt == "text_card" else {}
     return {"from_segment": f, "to_segment": t, "visual_type": vt, "theme": "tech", "prompt": "a precise brief",
-            **kw}  # fmt: skip
+            **card, **kw}  # fmt: skip
+
+
+def test_text_card_needs_card_and_prompt_becomes_canonical():
+    with pytest.raises(PlanError, match="needs a `card`"):
+        validate_plan(
+            {"style_guide": SG, "shots": [shot(1, 1, "text_card", card=None)]}, 1, ["text_card"], False
+        )
+    card = {"eyebrow": "02 · THE ANSWER", "headline": "Java isn't baggage", "sub": "It's your edge",
+            "highlight": ["edge"]}  # fmt: skip
+    plan = validate_plan(
+        {"style_guide": SG, "shots": [shot(1, 1, "text_card", card=card)]}, 1, ["text_card"], False
+    )
+    segs = [{"n": 1, "start_ms": 0, "end_ms": 900, "text": "x"}]
+    built = build_shots(plan, segs, [{"w": "x", "start_ms": 0, "end_ms": 900}], 1000)
+    assert built[0]["prompt"] == (
+        "eyebrow: 02 · THE ANSWER\nheadline: Java isn't baggage\nsub: It's your edge\nhighlight: edge"
+    )
+
+
+def test_card_fields_from_canonical_and_legacy_prompts():
+    from app.services.generation import card_fields
+
+    f = card_fields("eyebrow: SKILL 2\nheadline: Evaluation\nsub: Confident. And wrong.\nhighlight: wrong")
+    assert (f["eyebrow"], f["headline"], f["sub"], f["highlight"]) == (
+        "SKILL 2", "Evaluation", "Confident. And wrong.", ["wrong"])  # fmt: skip
+    legacy = {
+        "Punchline card: 'Java isn't baggage.' Second line in teal: 'It's the edge.'":
+            ("", "Java isn't baggage.", "It's the edge."),
+        "Skill card. Tag: 'SKILL 2'. Headline: 'Evaluation'. Sub-line: 'Confident. And wrong. Why?'.":
+            ("SKILL 2", "Evaluation", "Confident. And wrong. Why?"),
+        "Chapter card. Tag in JetBrains Mono: '01 · TWO WORLDS'. Oswald headline: 'Where does \"learn Python\" come from?'.":
+            ("01 · TWO WORLDS", 'Where does "learn Python" come from?', ""),
+        "Robin's plan: Title 'That is all' sub 'Thanks for watching'": ("", "That is all", "Thanks for watching"),
+    }  # fmt: skip
+    for prompt, want in legacy.items():
+        f = card_fields(prompt)
+        assert (f["eyebrow"], f["headline"], f["sub"]) == want, prompt
 
 
 def test_segments_break_at_sentences_and_pauses():
