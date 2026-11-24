@@ -293,3 +293,34 @@ def test_short_cover_prompt_and_photo_compositing(tmp_path):
     face = img.getpixel((round(1080 * 0.78), round(1920 * (y0 + 0.2))))
     assert face[0] > 120  # the photo sits in the zone, its centre at ~78% of the width
     assert max(img.getpixel((20, 960))) < 40  # the text column stays the design
+
+
+def test_render_and_cover_jobs_never_overwrite_each_others_fields(ready_project):  # noqa: F811
+    import uuid as _uuid
+
+    from app.core.db import get_sessionmaker
+    from app.models import ShortClip
+
+    _, _, pid = ready_project
+    with get_sessionmaker()() as db:
+        c = ShortClip(project_id=_uuid.UUID(pid), index=1, shot_from=0, shot_to=0, start_ms=0, end_ms=1000,
+                      hashtags=[], meta={"context_line": "ctx", "stale": True})  # fmt: skip
+        db.add(c)
+        db.commit()
+        sid = c.id
+    with get_sessionmaker()() as render_db, get_sessionmaker()() as cover_db:
+        stale_copy = render_db.get(ShortClip, sid)  # the render job loaded the row first…
+        _ = stale_copy.meta
+        cover = cover_db.get(ShortClip, sid)  # …then the cover job saved its result
+        cover.meta = SH._merge_meta(cover_db, sid, {"cover_asset_id": "abc", "cover_status": "done"})
+        cover_db.commit()
+        stale_copy.meta = SH._merge_meta(render_db, sid, {"rendered_at": "now"}, drop=("stale",))
+        render_db.commit()
+    with get_sessionmaker()() as db:
+        meta = db.get(ShortClip, sid).meta
+    assert meta == {
+        "context_line": "ctx",
+        "cover_asset_id": "abc",
+        "cover_status": "done",
+        "rendered_at": "now",
+    }

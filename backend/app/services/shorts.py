@@ -745,8 +745,9 @@ def render(short_id: str) -> None:
                 db.add(a)
                 db.flush()
                 clip.asset_id, clip.status = a.id, "done"
-                clip.meta = {**{k: v for k, v in (clip.meta or {}).items() if k != "stale"}, "rendered_at": datetime.now(UTC).isoformat(timespec="seconds"),
-                             "with_face": with_face, "layout": {"stage": [0, STAGE_Y, STAGE_W, STAGE_H], "face_zone": [FACE_X, FACE_Y, FACE_W, FACE_H]}}  # fmt: skip
+                clip.meta = _merge_meta(db, clip.id, {"rendered_at": datetime.now(UTC).isoformat(timespec="seconds"),
+                                                      "with_face": with_face, "layout": {"stage": [0, STAGE_Y, STAGE_W, STAGE_H],
+                                                      "face_zone": [FACE_X, FACE_Y, FACE_W, FACE_H]}}, drop=("stale",))  # fmt: skip
             db.commit()
         except Exception as ex:  # noqa: BLE001
             log.exception("short render failed")
@@ -848,14 +849,21 @@ def make_cover(short_id: str) -> None:
                       meta={"short_id": str(clip.id), "image_model": alias, "cost_usd": round(cost, 4)})  # fmt: skip
             db.add(a)
             db.flush()
-            meta.update({"cover_asset_id": str(a.id), "cover_status": "done", "cover_error": None,
-                         "cover_cost_usd": round(cost, 4)})  # fmt: skip
+            updates = {"cover_asset_id": str(a.id), "cover_status": "done", "cover_error": None,
+                       "cover_cost_usd": round(cost, 4)}  # fmt: skip
         except Exception as ex:  # noqa: BLE001
             log.exception("short cover failed")
             db.rollback()
             clip = db.get(ShortClip, sid)
-            meta = dict(clip.meta or {})
-            meta.update({"cover_status": "failed", "cover_error": f"{type(ex).__name__}: {ex}"[:500]})
-        clip.meta = meta
-        flag_modified(clip, "meta")
+            updates = {"cover_status": "failed", "cover_error": f"{type(ex).__name__}: {ex}"[:500]}
+        clip.meta = _merge_meta(db, sid, updates)  # a render may have saved its own fields meanwhile
         db.commit()
+
+
+def _merge_meta(db: Session, short_id: uuid.UUID, updates: dict, drop: tuple[str, ...] = ()) -> dict:
+    """The Short's meta as stored NOW (row-locked), with these changes: a render and a cover job for the same Short
+    run in parallel, and neither may overwrite the other's fields with its stale copy."""
+    current = (
+        db.execute(select(ShortClip.meta).where(ShortClip.id == short_id).with_for_update()).scalar() or {}
+    )
+    return {**{k: v for k, v in current.items() if k not in drop}, **updates}
