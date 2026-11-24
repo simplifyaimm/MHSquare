@@ -420,6 +420,23 @@ def test_worker_boot_fails_interrupted_takes_and_skips_them(fakes, ready_project
     assert len(fakes[0].calls) == calls
 
 
+def test_worker_boot_fails_a_preview_build_that_died_with_the_worker(ready_project):
+    import uuid as _uuid
+
+    from app.services.assembly import preview
+
+    _, _, pid = ready_project
+    with get_sessionmaker()() as db:
+        p = db.get(Project, _uuid.UUID(pid))
+        p.plan_meta = {"preview": {"status": "running"}, "final": {"status": "done"}}
+        db.commit()
+    assert preview.recover_interrupted() == 1
+    with get_sessionmaker()() as db:
+        meta = db.get(Project, _uuid.UUID(pid)).plan_meta
+    assert meta["preview"]["status"] == "failed" and "Interrupted" in meta["preview"]["error"]
+    assert meta["final"] == {"status": "done"}
+
+
 def test_planner_truncated_reply_retries_compact_with_more_tokens(fakes, ready_project, monkeypatch):
     c, csrf, pid = ready_project
     seen = []
@@ -458,6 +475,27 @@ def test_preview_composites_facecam_circle_and_shorts_canvas(fakes, ready_projec
                      mime="video/mp4", meta={"duration_ms": DURATION}))  # fmt: skip
         db.commit()
     c.post(f"/api/projects/{pid}/plan", headers=h)
+    # before any shot exists the frame is the dark brand background: the face cam must be cut to a circle,
+    # its centre showing the camera and the corner of its square staying background
+    from app.services import style
+    from app.services.assembly.preview import facecam_geometry
+    from app.services.ingest.pipeline import latest_asset
+
+    build_preview(pid)
+    with get_sessionmaker()() as db:
+        p = db.get(Project, _uuid.UUID(pid))
+        cx, cy, dia = facecam_geometry(style.canvas(style.active(db), p), 1280, 720)
+        prev = storage.path(latest_asset(db, p.id, "preview").storage_key)
+    raw = subprocess.run(["ffmpeg", "-nostdin", "-v", "error", "-ss", "0.5", "-i", str(prev), "-frames:v", "1",  # noqa: S603, S607
+                          "-f", "rawvideo", "-pix_fmt", "rgb24", "-"], capture_output=True, check=True).stdout  # fmt: skip
+
+    def px(x: float, y: float) -> tuple[int, ...]:
+        i = (int(y) * 1280 + int(x)) * 3
+        return tuple(raw[i : i + 3])
+
+    inside, corner = px(cx, cy), px(cx - dia / 2 + 3, cy - dia / 2 + 3)
+    assert max(inside) > 60 and max(corner) < 60, (inside, corner)  # testsrc2 is bright; the brand bg is dark
+
     c.post(f"/api/projects/{pid}/generate", json={}, headers=h)
     build_preview(pid)
     d = c.get(f"/api/projects/{pid}/shots").json()
@@ -473,3 +511,27 @@ def test_preview_composites_facecam_circle_and_shorts_canvas(fakes, ready_projec
     build_preview(pid)
     meta = c.get(f"/api/projects/{pid}/shots").json()["preview"]["meta"]
     assert (meta["width"], meta["height"], meta["layout"]) == (540, 960, "shorts")
+
+
+def test_preview_reuses_cached_shot_clips(fakes, ready_project, monkeypatch):
+    """Each take's preview clip is made once (right after it renders); rebuilding the preview only joins clips."""
+    import uuid as _uuid
+
+    from app.services.assembly import preview
+
+    c, csrf, pid = ready_project
+    h = {"X-CSRF-Token": csrf}
+    c.post(f"/api/projects/{pid}/plan", headers=h)
+    c.post(f"/api/projects/{pid}/generate", json={}, headers=h)  # eager: each take also warms its clip
+    cache = preview._proxy_cache(_uuid.UUID(pid))
+    warmed = sorted(f.name for f in cache.glob("*.mp4"))
+    assert warmed and not list(cache.glob("*.part"))
+    encoded = []
+    real = preview._take_segment
+    monkeypatch.setattr(preview, "_take_segment", lambda *a: (encoded.append(a[1]), real(*a)))
+    preview.build_preview(pid)
+    assert (
+        encoded == []
+        and c.get(f"/api/projects/{pid}/shots").json()["plan_meta"]["preview"]["status"] == "done"
+    )
+    assert sorted(f.name for f in cache.glob("*.mp4")) == warmed  # nothing stale left behind

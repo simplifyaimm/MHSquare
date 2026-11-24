@@ -1,7 +1,9 @@
 import logging
+import time
 
 from celery import chain
 from celery.signals import worker_ready
+from sqlalchemy.exc import OperationalError
 
 from app.services import generation, planner
 from app.services.assembly import preview
@@ -43,21 +45,45 @@ def plan_run(project_id: str) -> None:
     planner.run_planning(project_id)
 
 
-@celery_app.task(name="gen.take", acks_late=True, soft_time_limit=3600, time_limit=3660)
+# after a Docker restart the worker can start before Postgres accepts connections: retry instead of losing the task
+DB_RETRY = dict(autoretry_for=(OperationalError,), retry_backoff=5, retry_backoff_max=60, max_retries=8)
+
+
+@celery_app.task(name="gen.take", acks_late=True, soft_time_limit=3600, time_limit=3660, **DB_RETRY)
 def gen_take(take_id: str) -> None:
     """Hard cap of 1 h per take (renderer-slot waits + LLM + up to 3 renders); a hung take fails, never hangs."""
     generation.run_take(take_id)
+    preview_warm.delay(take_id)  # its preview clip, off the take's critical path
+
+
+@celery_app.task(name="preview.warm", acks_late=False)
+def preview_warm(take_id: str) -> None:
+    try:
+        preview.warm_proxy(take_id)
+    except Exception:  # noqa: BLE001 — an optimisation only: the preview build encodes what is missing
+        log.exception("preview warm-up failed for take %s", take_id)
 
 
 @worker_ready.connect
 def _recover_on_boot(sender=None, **_) -> None:
-    if str(getattr(sender, "hostname", "")).startswith("celery@"):  # the generation worker, not the ML one
-        n = generation.recover_interrupted()
-        if n:
-            log.warning("marked %d interrupted takes as failed", n)
+    if not str(getattr(sender, "hostname", "")).startswith(
+        "celery@"
+    ):  # the generation worker, not the ML one
+        return
+    for attempt in range(12):  # Postgres may still be starting
+        try:
+            n, m = generation.recover_interrupted(), preview.recover_interrupted()
+            break
+        except OperationalError:
+            time.sleep(5 * (attempt + 1))
+    else:
+        log.error("could not reach the database to recover interrupted work")
+        return
+    if n or m:
+        log.warning("marked %d interrupted takes and %d interrupted preview builds as failed", n, m)
 
 
-@celery_app.task(name="preview.build")
+@celery_app.task(name="preview.build", **DB_RETRY)
 def preview_build(project_id: str, quality: str = "proxy") -> None:
     preview.build_preview(project_id, quality)
 
