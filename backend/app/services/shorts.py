@@ -18,7 +18,9 @@
 
 import hashlib
 import logging
+import re
 import tempfile
+import textwrap
 import uuid
 from datetime import UTC, datetime
 from pathlib import Path
@@ -44,7 +46,7 @@ STAGE_W, STAGE_H, STAGE_Y = 1080, 1520, 240  # the animation panel
 FACE_X, FACE_Y, FACE_W, FACE_H = 64, 1240, 600, 620  # the talking head, over the panel's bottom-left
 CLEAR_H = FACE_Y - STAGE_Y - 120  # 880: scene content stays above this (captions + face below)
 CAPTION_BOTTOM = FACE_Y - 16  # captions right above the talking head
-MIN_MS, MAX_MS = 20_000, 75_000
+MIN_MS, MAX_MS = 40_000, 120_000  # 70–110 s is the target; a complete interview answer may be ~45 s
 STAGE_VERSION = "s4"  # bump when the template stage render changes: cached segments are then rebuilt
 FITTED_VERSION = "f3"  # the same for text cards and fitted 16:9 scenes
 # templates are authored on a slightly smaller CSS canvas and rendered at 1.11×: bigger text and cards on a phone
@@ -85,10 +87,16 @@ class Pick(BaseModel):
     src: int = Field(alias="from")
     to: int
     series: str | None = None
+    day: int | None = None  # the model's posting order, if it gave one
+    context_line: str = ""  # on-screen setup in the first seconds: who / what situation
     hook: str
     title: str
     description: str = ""
     hashtags: list[str] = Field(default_factory=list)
+    pinned_comment: str = ""
+    cover: dict = Field(
+        default_factory=dict
+    )  # the cover concept (headline, highlight, subline, points, visual)
     score: float = 5.0
     why: str = ""
 
@@ -96,6 +104,33 @@ class Pick(BaseModel):
     @classmethod
     def _hook(cls, v: object) -> str:
         return _clip(v, 44)
+
+    @field_validator("context_line", mode="before")
+    @classmethod
+    def _context(cls, v: object) -> str:
+        return _clip(v, 64)
+
+    @field_validator("pinned_comment", mode="before")
+    @classmethod
+    def _pinned(cls, v: object) -> str:
+        return _clip(v, 300)
+
+    @field_validator("cover", mode="before")
+    @classmethod
+    def _cover(cls, v: object) -> dict:
+        if not isinstance(v, dict):
+            return {}
+        return {"headline": _clip(v.get("headline"), 40), "highlight": _clip(v.get("highlight"), 30),
+                "subline": _clip(v.get("subline"), 60), "visual": _clip(v.get("visual"), 160),
+                "points": [_clip(x, 48) for x in (v.get("points") or []) if str(x or "").strip()][:4]}  # fmt: skip
+
+    @field_validator("day", mode="before")
+    @classmethod
+    def _day(cls, v: object) -> int | None:
+        try:
+            return int(v) if v is not None else None
+        except (TypeError, ValueError):
+            return None
 
     @field_validator("title", mode="before")
     @classmethod
@@ -127,31 +162,43 @@ class Pick(BaseModel):
             return 5.0
 
 
-PLAN_SYSTEM = """You turn one long explainer video into vertical Shorts / Instagram Reels for the channel "{brand}" —
-“{tagline}”. You get the timeline: one line per shot: number [start, seconds] narration.
+PLAN_SYSTEM = """You are a senior tech-education creator and short-form strategist (YouTube Shorts + Instagram Reels)
+cutting one long explainer video of the channel "{brand}" — “{tagline}” into Shorts. Reach and quality matter, not
+the number of Shorts. You get the timeline: one line per shot: number [start, seconds] narration.
 
-Pick every clip that works ON ITS OWN as a Short:
-- a continuous range of whole shots (from, to); 25–60 seconds is best (allowed 20–75)
-- it opens with a line that hooks — a question, a surprising fact, a clear problem — never "so", "and", "as I said",
-  never mid-thought
-- it makes ONE point and ends on a complete thought (an answer or a takeaway), not mid-explanation
-- a viewer who never saw the long video understands it (no "earlier we saw")
-- clips must not overlap
-- a multi-step idea too long for one Short becomes a SERIES: consecutive clips with the same series name (e.g. "RAG
-  in Java"); each part must still make sense alone
-Find as many good Shorts as the video really has (typically one per 60–90 seconds of video); quality over count.
+The narration is fixed: each Short is a continuous range of whole shots (from, to). You choose where it starts and
+ends. On screen the tool adds a context line (first seconds), a hook in the top band, captions and an end card.
+
+Pick the clips that work ON THEIR OWN:
+- 70–110 seconds is the target; ~45–60 s only when the range is exactly one complete idea (e.g. one interview
+  question and its answer). Let the content decide; never pad, never cut a concept in half.
+- the FIRST SPOKEN LINE must work as an opening: a question, a problem, "Skill 1. RAG.", "Let's start with…". Never
+  "so", "and", "as I said", "now", "here's the problem" with no problem stated, or a reference to earlier parts.
+- it teaches ONE complete idea with its concrete example and ENDS on a complete takeaway sentence — never on a list
+  item or a trailing comma.
+- a viewer who never saw the long video understands it from second 0 (the context line names the hidden premise).
+- clips must not overlap and must not reuse shots.
+- use a SERIES only where the video already has a numbered skeleton (Skill 1–4, Month 1–3, World 1–2), so the
+  "PART k/n" badge matches what is said. Same series name on every part; each part still teaches a complete idea.
 
 For each clip write:
-- hook: the on-screen title at the top, ≤ 40 characters, plain and specific ("Do Java devs need Python for AI?")
-- title: ≤ 70 characters, main keyword first, no hashtags, no clickbait
-- description: 2–3 short sentences: what the viewer learns, then an invitation to watch the full video
+- context_line: ≤ 60 characters, the premise the narration assumes ("AI interview Q: chatbot over 50,000 policy
+  docs", "Java dev Robin keeps hearing: 'Learn Python for AI'")
+- hook: the on-screen title, ≤ 44 characters, plain and specific
+- title: ≤ 70 characters, main keyword FIRST; series parts end with " | <series> k/n"
+- description: 2–3 short sentences: what the viewer learns (the tool adds the full-video pointer)
 - hashtags: 3–5 (topic, field, audience)
-- score: 1–10 — strength as a standalone Short (hook, payoff, how many people care)
-- why: one short reason
-Voice: no hype, no invented numbers, English only.
+- pinned_comment: one question that invites replies (experience, stack, which part to go deeper on)
+- cover: {{"headline": "2–6 words, the concrete thing", "highlight": "word(s) in the accent colour",
+  "subline": "the developer payoff", "points": ["3–4 short points"], "visual": "one topic-specific diagram idea"}}
+- day: posting order (1 = first); series parts on consecutive days; the strongest identity hook first
+- score: 1–10 standalone strength; why: one short reason
+Voice: no hype, no clickbait, no invented numbers, English only.
 
-Reply with ONLY JSON: {{"shorts": [{{"from": 3, "to": 6, "series": null, "hook": "...", "title": "...",
-"description": "...", "hashtags": ["#..."], "score": 8, "why": "..."}}]}}"""
+Reply with ONLY JSON: {{"shorts": [{{"from": 6, "to": 16, "series": null, "day": 1, "context_line": "...",
+"hook": "...", "title": "...", "description": "...", "hashtags": ["#..."], "pinned_comment": "...",
+"cover": {{"headline": "...", "highlight": "...", "subline": "...", "points": ["..."], "visual": "..."}},
+"score": 8, "why": "..."}}]}}"""
 
 
 def _ts(ms: int) -> str:
@@ -191,7 +238,10 @@ def normalise(picks: list[Pick], shots: list[Shot], taken: list[tuple[int, int]]
             blocks.append((max(i[0].score for i in items), items))
     in_series = {id(i) for _, items in blocks for i in items}
     blocks += [(i[0].score, [i]) for i in accepted if id(i) not in in_series]
-    blocks.sort(key=lambda bl: -bl[0])  # strongest first: day 1 decides whether the series takes off
+    if all(i[0].day is not None for i in accepted):  # the strategist's posting order (series stay together)
+        blocks.sort(key=lambda bl: min(i[0].day for i in bl[1]))
+    else:
+        blocks.sort(key=lambda bl: -bl[0])  # strongest first: day 1 decides whether the series takes off
     out, day = [], 0
     for _, items in blocks:
         n = len(items)
@@ -199,7 +249,7 @@ def normalise(picks: list[Pick], shots: list[Shot], taken: list[tuple[int, int]]
             day += 1
             series = pk.series if n >= 2 else None
             title = pk.title
-            if series and "part" not in title.lower():
+            if series and "part" not in title.lower() and not re.search(r"\b\d+\s*/\s*\d+\b", title):
                 title = _clip(f"{title} (Part {k}/{n})", 100)
             tags = pk.hashtags
             desc = pk.description.strip()
@@ -209,7 +259,9 @@ def normalise(picks: list[Pick], shots: list[Shot], taken: list[tuple[int, int]]
             out.append({"index": day, "shot_from": a, "shot_to": b, "start_ms": by[a].start_ms, "end_ms": by[b].end_ms,
                         "series": series, "part": k if series else None, "parts": n if series else None,
                         "hook": pk.hook, "title": title, "description": desc[:4900], "hashtags": tags,
-                        "score": pk.score, "why": _clip(pk.why, 300)})  # fmt: skip
+                        "score": pk.score, "why": _clip(pk.why, 300),
+                        "meta": {"context_line": pk.context_line, "pinned_comment": pk.pinned_comment,
+                                 "cover": pk.cover}})  # fmt: skip
     return out
 
 
@@ -232,7 +284,7 @@ def plan(project_id: str) -> None:
             cfg = routing.load()
             text, res = llm.chat(cfg.planner.model, [{"role": "user", "content": user}],
                                  system=PLAN_SYSTEM.format(brand=b.get("name", ""), tagline=b.get("tagline", "")),
-                                 fallbacks=cfg.planner.fallbacks, max_tokens=12000, temperature=0.4)  # fmt: skip
+                                 fallbacks=cfg.planner.fallbacks, max_tokens=16000, temperature=0.4)  # fmt: skip
             picks = []
             for it in extract_json(text).get("shorts", []):
                 try:
@@ -249,7 +301,7 @@ def plan(project_id: str) -> None:
             rows = normalise(picks, shots, [(k.shot_from, k.shot_to) for k in keep], long_title)
             base = max((k.index for k in keep), default=0)
             for r in rows:
-                db.add(ShortClip(project_id=pid, **{**r, "index": base + r["index"]}, meta={}))
+                db.add(ShortClip(project_id=pid, **{**r, "index": base + r["index"]}))
             _status(
                 p, status="done", made=len(rows), kept=len(keep), cost_usd=round(res.cost_usd, 4), error=None
             )
@@ -369,6 +421,69 @@ def stage_segment(db: Session, p: Project, profile, shot: Shot, cache: Path, wor
         if mode != "fit16x9":  # a temporary native render (never the stored take)
             Path(src).unlink(missing_ok=True)
     part.replace(out)
+    return out
+
+
+CAPTION_FONT = "/usr/share/fonts/brand/Poppins-SemiBold.ttf"
+CTX_S = 3.5  # how long the context line stays on screen
+
+
+def _norm(s: str) -> str:
+    return re.sub(r"[^a-z0-9]", "", str(s).lower())
+
+
+_TECH = re.compile(r"[a-z][A-Z]|[A-Z].*[A-Z]|\d[A-Za-z]|[A-Za-z]\d")  # camelCase, ACRONYMS, LangChain4j, GPT4
+
+
+def _misheard_term(spoken: list[dict], sw: list[str], j1: int, j2: int) -> bool:
+    """Only a technical term or a product/person name from the script replaces what was heard: the creator's
+    deliberate wording, numbers and placeholders (the script's "X" for the persona) stay as spoken."""
+    import difflib
+
+    if any(re.search(r"\d", w["w"]) and not _TECH.search(w["w"]) for w in spoken):
+        return False  # "50,000" is right; the script's "fifty thousand" is just how it was written
+    names = []
+    for j in range(j1, j2):
+        tok = sw[j].strip(".,!?;:\"'")
+        prev = sw[j - 1] if j else "."
+        if len(_norm(tok)) < 3 and not re.search(r"\d", tok):
+            return False  # a placeholder like the script's "X" (the persona's name is said aloud)
+        proper = tok[0].isupper() and not prev.endswith((".", "?", "!", ":"))
+        names.append(bool(_TECH.search(tok)) or proper)
+    if not any(names) or (j2 - j1 > len(spoken) and not all(names)):  # never add unspoken ordinary words
+        return False
+    heard, written = _norm("".join(w["w"] for w in spoken)), _norm("".join(sw[j1:j2]))
+    return difflib.SequenceMatcher(None, heard, written).ratio() >= 0.3
+
+
+def correct_words(words: list[dict], script: str) -> list[dict]:
+    """Fix mis-heard words in the captions from the creator's own script ("Cloud" → "Claude", "Olama" → "Ollama",
+    "LangChain 4G" → "LangChain4j"): align the transcript to the script and, where a short run of words (≤ 3) differs
+    between two matching stretches, use the script's words, sharing out the original timing. Ad-libs the script
+    doesn't contain are kept as spoken."""
+    import difflib
+
+    if not words or not script.strip():
+        return words
+    sw = [t.strip("*_`#>[]()") for t in re.sub(r"^\s*#+\s*", "", script, flags=re.M).split()]
+    sw = [t for t in sw if _norm(t)]
+    a, b = [_norm(w["w"]) for w in words], [_norm(t) for t in sw]
+    ops = difflib.SequenceMatcher(None, a, b, autojunk=False).get_opcodes()
+    out: list[dict] = []
+    for k, (tag, i1, i2, j1, j2) in enumerate(ops):
+        anchored = (0 < k < len(ops) - 1 and ops[k - 1][0] == "equal" and ops[k + 1][0] == "equal"
+                    and ops[k - 1][2] - ops[k - 1][1] >= 2 and ops[k + 1][2] - ops[k + 1][1] >= 2)  # fmt: skip
+        if (tag == "replace" and anchored and i2 - i1 <= 3 and j2 - j1 <= i2 - i1 + 1
+                and _misheard_term(words[i1:i2], sw, j1, j2)):  # fmt: skip
+            t0, t1 = words[i1]["start_ms"], words[i2 - 1]["end_ms"]
+            step = (t1 - t0) / (j2 - j1)
+            trail = re.sub(r"^.*?([.,!?;:]*)$", r"\1", words[i2 - 1]["w"])  # keep the spoken punctuation
+            for m, tok in enumerate(sw[j1:j2]):
+                tok = tok.rstrip(".,!?;:") + (trail if m == j2 - j1 - 1 else "")
+                out.append({**words[i1], "w": tok, "start_ms": round(t0 + m * step),
+                            "end_ms": round(t0 + (m + 1) * step)})  # fmt: skip
+        else:
+            out.extend(words[i1:i2])  # equal, spoken-only (delete) or too different to trust
     return out
 
 
@@ -554,7 +669,9 @@ def render(short_id: str) -> None:
             storage = get_storage()
             cache = storage.root / "cache" / "shorts" / str(p.id)
             cache.mkdir(parents=True, exist_ok=True)
-            words = _words(db, p.id)
+            script = latest_asset(db, p.id, AssetKind.script)
+            words = correct_words(_words(db, p.id),
+                                  storage.path(script.storage_key).read_text("utf-8-sig") if script else "")  # fmt: skip
             segs = [stage_segment(db, p, profile, s, cache, words) for s in shots]
             root = storage.root / "tmp"
             root.mkdir(parents=True, exist_ok=True)
@@ -594,9 +711,23 @@ def render(short_id: str) -> None:
                     graph += (f";[4:v]scale={FACE_W}:{FACE_H}:force_original_aspect_ratio=increase,"
                               f"crop={FACE_W}:{FACE_H},fps={p.fps},setpts=PTS-STARTPTS[face];"
                               f"[base][face]overlay={FACE_X}:{FACE_Y}:eof_action=repeat[withface]")  # fmt: skip
-                graph += (
-                    f";[{'withface' if with_face else 'base'}]ass={ass}:fontsdir=/usr/share/fonts/brand[v]"
-                )
+                cur = "withface" if with_face else "base"
+                # the context line: the premise the narration assumes, on screen for the first seconds
+                ctx_line = (clip.meta or {}).get("context_line", "")
+                if ctx_line:
+                    lines = textwrap.wrap(ctx_line, 34)[:2]
+                    ctx_file = work / "ctx.txt"
+                    ctx_file.write_text("\n".join(lines), "utf-8")
+                    y0, bh = STAGE_Y + 20, 48 * len(lines) + 34
+                    acc = style.accent(profile, p).lstrip("#")
+                    on = f"lt(t,{CTX_S + 0.35})"
+                    graph += (f";[{cur}]drawbox=x=48:y={y0}:w={W - 96}:h={bh}:color=0x0b1220@0.94:t=fill:enable='{on}',"
+                              f"drawbox=x=48:y={y0}:w=8:h={bh}:color=0x{acc}:t=fill:enable='{on}',"
+                              f"drawtext=fontfile={CAPTION_FONT}:textfile={ctx_file}:fontsize=38:line_spacing=12:"
+                              f"fontcolor=white:x=84:y={y0 + 18}:"
+                              f"alpha='if(lt(t,{CTX_S}),1,max(0,1-(t-{CTX_S})/0.35))'[ctx]")  # fmt: skip
+                    cur = "ctx"
+                graph += f";[{cur}]ass={ass}:fontsdir=/usr/share/fonts/brand[v]"
                 _ffmpeg(*inputs, "-filter_complex", graph, "-map", "[v]", "-map", "2:a", "-t", f"{dur:.3f}",
                         "-c:v", "libx264", "-preset", "veryfast", "-crf", "20", "-pix_fmt", "yuv420p",
                         "-r", str(p.fps), "-c:a", "aac", "-b:a", "192k", "-movflags", "+faststart", str(out))  # fmt: skip
@@ -660,6 +791,10 @@ def as_json(clip: ShortClip) -> dict:
             "description": clip.description, "hashtags": clip.hashtags, "why": clip.why, "score": clip.score,
             "status": clip.status, "error": clip.error, "stale": bool((clip.meta or {}).get("stale")),
             "with_face": bool((clip.meta or {}).get("with_face")),
+            "context_line": (clip.meta or {}).get("context_line", ""),
+            "pinned_comment": (clip.meta or {}).get("pinned_comment", ""),
+            "cover_status": (clip.meta or {}).get("cover_status"),
+            "cover_url": signed_media_url((clip.meta or {})["cover_asset_id"]) if (clip.meta or {}).get("cover_asset_id") else None,
             "url": signed_media_url(clip.asset_id) if clip.asset_id else None}  # fmt: skip
 
 
@@ -672,3 +807,55 @@ def recover_interrupted() -> int:
             c.status, c.error = "failed", "Interrupted (worker or Docker restarted). Render again."
         db.commit()
         return len(stuck)
+
+
+def make_cover(short_id: str) -> None:
+    """Worker: the Short's 9:16 cover (AI-designed, the creator's real photo composited), from its cover concept."""
+    from app.models.style import BrandAsset
+    from app.services import covers_ai as AI
+
+    sid = uuid.UUID(short_id)
+    with get_sessionmaker()() as db:
+        clip = db.get(ShortClip, sid)
+        if clip is None:
+            return
+        p = db.get(Project, clip.project_id)
+        meta = dict(clip.meta or {})
+        try:
+            profile = style.active(db)
+            cover = meta.get("cover") or {"headline": clip.hook, "highlight": "", "subline": clip.title,
+                                          "points": [], "visual": ""}  # fmt: skip
+            head = db.scalar(select(BrandAsset).where(BrandAsset.status == "ready", BrandAsset.cutout_key.is_not(None))
+                             .order_by(BrandAsset.created_at.desc()))  # fmt: skip
+            storage = get_storage()
+            person = storage.path(head.cutout_key) if head else None
+            eyebrow = clip.series or (p.topic or p.name)
+            part = f"PART {clip.part}/{clip.parts}" if clip.series else ""
+            jpg, cost, alias = AI.draw_short_cover(
+                cover, _clip(eyebrow, 32).upper(), part, p, profile, person
+            )
+            old = db.get(Asset, meta["cover_asset_id"]) if meta.get("cover_asset_id") else None
+            if old is not None:
+                storage.delete(old.storage_key)
+                db.delete(old)
+            key = storage.new_key(p.id, "jpg")
+            with tempfile.NamedTemporaryFile(suffix=".jpg", delete=False, dir=storage.root) as f:
+                f.write(jpg)
+            size, digest = storage.put_file(key, Path(f.name))
+            Path(f.name).unlink(missing_ok=True)
+            a = Asset(project_id=p.id, kind="short_cover", storage_key=key, sha256=digest, size=size, mime="image/jpeg",
+                      original_name=f"short-{clip.index:02d}-cover.jpg",
+                      meta={"short_id": str(clip.id), "image_model": alias, "cost_usd": round(cost, 4)})  # fmt: skip
+            db.add(a)
+            db.flush()
+            meta.update({"cover_asset_id": str(a.id), "cover_status": "done", "cover_error": None,
+                         "cover_cost_usd": round(cost, 4)})  # fmt: skip
+        except Exception as ex:  # noqa: BLE001
+            log.exception("short cover failed")
+            db.rollback()
+            clip = db.get(ShortClip, sid)
+            meta = dict(clip.meta or {})
+            meta.update({"cover_status": "failed", "cover_error": f"{type(ex).__name__}: {ex}"[:500]})
+        clip.meta = meta
+        flag_modified(clip, "meta")
+        db.commit()

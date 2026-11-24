@@ -168,3 +168,10 @@ def _register_shorts() -> None:
 
 
 _register_shorts()
+
+
+@celery_app.task(name="shorts.cover", **DB_RETRY)
+def shorts_cover(short_id: str) -> None:
+    from app.services import shorts
+
+    shorts.make_cover(short_id)

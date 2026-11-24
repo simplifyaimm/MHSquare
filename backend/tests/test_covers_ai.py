@@ -66,8 +66,10 @@ def test_photo_is_composited_inside_the_reserved_zone(tmp_path):
     img = Image.open(io.BytesIO(jpg)).convert("RGB")
     assert img.size == (1920, 1080) and len(jpg) < 2_000_000
     x0 = round(1920 * (1 - AI.PHOTO_ZONE))
-    assert img.getpixel((x0 + 60, 1070))[0] > 150  # the photo (skin tone) at the bottom of the zone
-    assert img.getpixel((x0 - 120, 1070))[0] < 60  # left of the zone: still the dark design
+    assert (
+        img.getpixel((x0 + 60, 700))[0] > 150
+    )  # the photo (skin tone) in the zone (its bottom edge fades out)
+    assert img.getpixel((x0 - 120, 700))[0] < 60  # left of the zone: still the dark design
     short = Image.open(io.BytesIO(AI.composite(png(1088, 1920), "short", _photo(tmp_path), "#e63946")))
     assert short.size == (1080, 1920)
 

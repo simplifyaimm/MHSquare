@@ -16,7 +16,7 @@ def shot(i: int, start_s: float, end_s: float):
                            duration_ms=int((end_s - start_s) * 1000))  # fmt: skip
 
 
-SHOTS = [shot(i, i * 10, i * 10 + 10) for i in range(20)]  # 20 shots × 10 s
+SHOTS = [shot(i, i * 20, i * 20 + 20) for i in range(20)]  # 20 shots × 20 s
 
 
 def pick(a, b, score=5, series=None, title="Title"):
@@ -27,13 +27,13 @@ def pick(a, b, score=5, series=None, title="Title"):
 
 def test_clips_are_whole_shots_of_valid_length_without_overlap():
     out = SH.normalise([pick(0, 2, 9), pick(1, 3, 8),  # overlaps the stronger one → dropped
-                        pick(5, 5, 7),  # 10 s: too short
-                        pick(6, 14, 7),  # 90 s: too long
-                        pick(10, 13, 6), pick(30, 31, 9)],  # 30 s ok; shot 30 doesn't exist
+                        pick(5, 5, 7),  # 20 s: too short
+                        pick(6, 14, 7),  # 180 s: too long
+                        pick(10, 13, 6), pick(30, 31, 9)],  # 80 s ok; shot 30 doesn't exist
                        SHOTS, long_title="Long video")  # fmt: skip
     assert [(o["shot_from"], o["shot_to"]) for o in out] == [(0, 2), (10, 13)]
     first = out[0]
-    assert (first["start_ms"], first["end_ms"], first["index"]) == (0, 30000, 1)
+    assert (first["start_ms"], first["end_ms"], first["index"]) == (0, 60000, 1)
     assert first["hashtags"] == ["#Java", "#AI"] and first["description"].endswith("#Java #AI #Shorts")
     assert "Full video: “Long video”" in first["description"]
 
@@ -224,3 +224,72 @@ def test_worker_boot_fails_a_short_that_died_mid_render(ready_project):  # noqa:
             for c in db.query(ShortClip).filter(ShortClip.project_id == _uuid.UUID(pid))
         }
     assert st[1][0] == "failed" and "Interrupted" in st[1][1] and st[2] == ("queued", None)
+
+
+def _w(text: str) -> list[dict]:
+    return [{"w": w, "start_ms": k * 300, "end_ms": k * 300 + 250} for k, w in enumerate(text.split())]
+
+
+def test_captions_fix_misheard_tech_terms_from_the_script_only():
+    script = ("Now you can call Claude from Java. Run models locally with Ollama, and then use LangChain4j. That is it. "
+              "X has fifty thousand policy documents and the team ships it.")  # fmt: skip
+    heard = _w("Now you can call Cloud from Java. Run models locally with Olama, and then use Lang chain 4G. That is it. "
+               "Robin has 50,000 policy documents and the system ships it.")  # fmt: skip
+    out = [w["w"] for w in SH.correct_words(heard, script)]
+    assert "Claude" in out and "Ollama," in out and "LangChain4j." in out
+    assert "Robin" in out and "X" not in out  # the script's placeholder never replaces the spoken name
+    assert "50,000" in out and "fifty" not in out  # numbers stay as spoken
+    assert "system" in out  # an ordinary word the creator chose stays
+    fixed = SH.correct_words(heard, script)
+    assert all(a["start_ms"] <= b["start_ms"] for a, b in zip(fixed, fixed[1:], strict=False))
+
+
+def test_strategist_order_and_numbered_titles_are_kept():
+    picks = [pick(10, 13, 6, "Skills", "RAG in 4 steps | Skills 1/2"), pick(14, 17, 6, "Skills", "Evals | Skills 2/2"),
+             pick(0, 3, 9, None, "Standalone")]  # fmt: skip
+    for p_, d in zip(picks, (2, 3, 1), strict=True):
+        p_.day = d
+    out = SH.normalise(picks, SHOTS)
+    assert [o["shot_from"] for o in out] == [0, 10, 14]  # the given posting order, series together
+    assert out[1]["title"] == "RAG in 4 steps | Skills 1/2"  # no duplicate "(Part 1/2)"
+
+
+def test_pick_keeps_context_line_cover_and_pinned_comment():
+    pk = SH.Pick.model_validate({"from": 1, "to": 3, "hook": "h", "title": "t", "context_line": "AI interview Q: " + "x" * 80,
+                                 "pinned_comment": "Which part next?", "cover": {"headline": "RAG In 4 Steps",
+                                 "points": ["a", "b", "c", "d", "e"], "junk": 1}})  # fmt: skip
+    assert len(pk.context_line) <= 64 and pk.pinned_comment == "Which part next?"
+    assert (
+        pk.cover["headline"] == "RAG In 4 Steps" and len(pk.cover["points"]) == 4 and "junk" not in pk.cover
+    )
+    row = SH.normalise([pk.model_copy(update={"src": 0, "to": 4})], SHOTS)[0]
+    assert row["meta"]["context_line"].startswith("AI interview Q") and row["meta"]["cover"]["headline"]
+
+
+def test_short_cover_prompt_and_photo_compositing(tmp_path):
+    from PIL import Image
+
+    from app.services import covers_ai as AI
+
+    p = AI.short_cover_prompt({"headline": "RAG In 4 Steps", "highlight": "RAG", "subline": "From your docs",
+                               "points": ["Chunk: split docs", "Embed"], "visual": "Docs to answer"},
+                              "4 SKILLS", "PART 1/4", "#e63946", "@me", "No hype.")  # fmt: skip
+    assert '"RAG In 4 Steps"' in p and '"PART 1/4"' in p and "EMPTY" in p and "never a phrase" in p
+    assert '"Chunk" with one small line "split docs"' in p
+    design = tmp_path / "d.png"
+    Image.new("RGB", (1088, 1920), (5, 5, 10)).save(design)
+    person = tmp_path / "me.png"
+    ring = Image.new("RGBA", (800, 1000), (0, 0, 0, 0))
+    for y in range(100, 1000):
+        for x in range(200, 600):
+            ring.putpixel((x, y), (180, 150, 130, 255))  # skin-ish person
+    for x in range(800):
+        ring.putpixel((x, 990), (60, 120, 255, 255))  # a blue frame-ring line
+    ring.save(person)
+    jpg = AI.compose_short_cover(design.read_bytes(), person, "#e63946")
+    img = Image.open(__import__("io").BytesIO(jpg)).convert("RGB")
+    assert img.size == (1080, 1920)
+    x0, y0, x1, y1 = AI.SHORT_PHOTO_BOX
+    face = img.getpixel((round(1080 * 0.78), round(1920 * (y0 + 0.2))))
+    assert face[0] > 120  # the photo sits in the zone, its centre at ~78% of the width
+    assert max(img.getpixel((20, 960))) < 40  # the text column stays the design

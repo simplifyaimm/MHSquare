@@ -7,6 +7,7 @@ import {
   Copy,
   Download,
   Film,
+  ImageIcon,
   Loader2,
   RefreshCw,
   Save,
@@ -105,11 +106,11 @@ export function ShortsPage() {
           <p>
             The AI picks self-contained 25–60 s moments (whole shots, so your narration never starts or ends
             mid-sentence), groups multi-step ideas into a series (Part 1, Part 2…) and orders them for daily
-            posting. Each vertical video has the hook at the top, your animation re-drawn as a tall 9:16
-            panel with word-by-word captions, and <b className="text-text">your talking head over its
-            bottom-left corner</b> (the same moment of your face-cam recording; the scenes keep that corner
-            clear). Rendering is free; finding Shorts is one small AI call. Already-rendered Shorts are kept
-            when you find again.
+            posting. Each vertical video has the hook at the top, your animation re-drawn as a tall 9:16 panel
+            with word-by-word captions, and{" "}
+            <b className="text-text">your talking head over its bottom-left corner</b> (the same moment of
+            your face-cam recording; the scenes keep that corner clear). Rendering is free; finding Shorts is
+            one small AI call. Already-rendered Shorts are kept when you find again.
           </p>
           {data?.status.status === "done" && (
             <p>
@@ -156,8 +157,12 @@ function ShortCard({ s, pid }: { s: Short; pid: string }) {
           ) : (
             <div className="relative aspect-[9/16] w-full overflow-hidden rounded-lg border border-border bg-black text-xs text-muted">
               {/* the real layout, in % of 1080×1920: band 0–240, panel 240–1760, face 64,1240 600×620 */}
-              <div className="absolute inset-x-2 top-[4%] h-[8%] font-medium leading-tight text-text">{hook}</div>
-              <div className="absolute inset-x-0 top-[12.5%] h-[79.2%] bg-surface-2 p-2 text-center">animation</div>
+              <div className="absolute inset-x-2 top-[4%] h-[8%] font-medium leading-tight text-text">
+                {hook}
+              </div>
+              <div className="absolute inset-x-0 top-[12.5%] h-[79.2%] bg-surface-2 p-2 text-center">
+                animation
+              </div>
               <div className="absolute left-[5.9%] top-[64.6%] flex h-[32.3%] w-[55.6%] items-center justify-center border-2 border-dashed border-accent/60 bg-surface">
                 your talking head
               </div>
@@ -214,6 +219,11 @@ function ShortCard({ s, pid }: { s: Short; pid: string }) {
             </span>
           </div>
           {s.error && s.status === "failed" && <p className="text-xs text-danger">{s.error}</p>}
+          {s.context_line && (
+            <p className="text-xs text-muted">
+              Context line (first seconds): <span className="text-text">{s.context_line}</span>
+            </p>
+          )}
           <label className="flex flex-col gap-1 text-xs text-muted">
             On-screen hook
             <Input value={hook} onChange={(e) => setHook(e.target.value)} aria-label="Hook" />
@@ -255,6 +265,49 @@ function ShortCard({ s, pid }: { s: Short; pid: string }) {
             {s.why && <span className={cn("ml-auto text-xs text-muted")}>Why: {s.why}</span>}
           </div>
           {m.edit.error && <p className="text-xs text-danger">{m.edit.error.message}</p>}
+          {s.pinned_comment && (
+            <p className="flex items-center gap-2 text-xs text-muted">
+              Pinned comment: <span className="min-w-0 flex-1 text-text">{s.pinned_comment}</span>
+              <CopyButton text={s.pinned_comment} label="pinned comment" />
+            </p>
+          )}
+          <div className="flex flex-wrap items-center gap-3 border-t border-border pt-3">
+            {s.cover_url ? (
+              <a href={s.cover_url} target="_blank" rel="noreferrer" aria-label="Open cover">
+                <img
+                  src={s.cover_url}
+                  alt={`Cover: ${s.hook}`}
+                  className="h-28 rounded-md border border-border"
+                />
+              </a>
+            ) : (
+              <span className="text-xs text-muted">No cover yet</span>
+            )}
+            <div className="flex flex-col gap-1">
+              <Button
+                size="sm"
+                variant="secondary"
+                disabled={s.cover_status === "running" || m.cover.isPending}
+                onClick={() => m.cover.mutate(s.id)}
+              >
+                {s.cover_status === "running" ? (
+                  <Loader2 size={14} className="animate-spin" />
+                ) : (
+                  <ImageIcon size={14} />
+                )}
+                {s.cover_url ? "New cover" : "Make cover"}
+              </Button>
+              {s.cover_url && (
+                <a
+                  href={`${s.cover_url}&dl=${encodeURIComponent(`short-${String(s.index).padStart(2, "0")}-cover.jpg`)}`}
+                  className="text-xs text-accent hover:underline"
+                >
+                  Download cover
+                </a>
+              )}
+              {s.cover_status === "failed" && <span className="text-xs text-danger">cover failed</span>}
+            </div>
+          </div>
         </div>
       </CardContent>
     </Card>

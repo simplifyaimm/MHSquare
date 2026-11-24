@@ -23,6 +23,10 @@ export type Short = {
   error: string | null;
   stale: boolean;
   url: string | null;
+  context_line?: string;
+  pinned_comment?: string;
+  cover_status?: "running" | "done" | "failed" | null;
+  cover_url?: string | null;
 };
 
 export type ShortsResponse = {
@@ -51,7 +55,9 @@ export function useShorts(pid: string) {
     enabled: !!pid,
     refetchInterval: (q) => {
       const d = q.state.data;
-      return d && (d.status.status === "running" || d.shorts.some((s) => BUSY.includes(s.status)))
+      return d &&
+        (d.status.status === "running" ||
+          d.shorts.some((s) => BUSY.includes(s.status) || s.cover_status === "running"))
         ? 3000
         : false;
     },
@@ -77,6 +83,14 @@ export function useShortMutations(pid: string) {
     edit: useMutation({
       mutationFn: ({ id, ...b }: ShortEdit & { id: string }) =>
         api<Short>(`/shorts/${id}`, { method: "PUT", body: JSON.stringify(b) }),
+      onSuccess: done,
+    }),
+    cover: useMutation({
+      mutationFn: (id: string) => api(`/shorts/${id}/cover`, { method: "POST" }),
+      onSuccess: done,
+    }),
+    coverAll: useMutation({
+      mutationFn: () => api<{ queued: number }>(`/projects/${pid}/shorts/covers`, { method: "POST" }),
       onSuccess: done,
     }),
     remove: useMutation({

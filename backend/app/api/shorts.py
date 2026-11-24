@@ -109,3 +109,26 @@ def delete_short(short_id: uuid.UUID, db: Session = Depends(get_db)):
             db.delete(a)
     db.delete(c)
     db.commit()
+
+
+@router.post("/shorts/{short_id}/cover", status_code=status.HTTP_202_ACCEPTED)
+def make_cover(short_id: uuid.UUID, db: Session = Depends(get_db)):
+    """The Short's 9:16 cover (AI-designed from its cover concept, the creator's photo composited)."""
+    c = _clip(db, short_id)
+    c.meta = {**(c.meta or {}), "cover_status": "running", "cover_error": None}
+    db.commit()
+    tasks.shorts_cover.delay(str(c.id))
+    return {"status": "running"}
+
+
+@router.post("/projects/{project_id}/shorts/covers", status_code=status.HTTP_202_ACCEPTED)
+def make_all_covers(project_id: uuid.UUID, db: Session = Depends(get_db)):
+    p = _project(db, project_id)
+    todo = [c for c in db.scalars(select(ShortClip).where(ShortClip.project_id == p.id).order_by(ShortClip.index))
+            if not (c.meta or {}).get("cover_asset_id") and (c.meta or {}).get("cover_status") != "running"]  # fmt: skip
+    for c in todo:
+        c.meta = {**(c.meta or {}), "cover_status": "running", "cover_error": None}
+    db.commit()
+    for c in todo:
+        tasks.shorts_cover.delay(str(c.id))
+    return {"queued": len(todo)}

@@ -247,7 +247,7 @@ def composite(design: bytes, fmt: str, person_png: Path | None, accent: str) -> 
     W, H = OUT[fmt]  # noqa: N806
     canvas = _fit(Image.open(io.BytesIO(design)).convert("RGB"), W, H).convert("RGBA")
     if person_png is not None:
-        person = Image.open(person_png).convert("RGBA")
+        person = strip_frame_ring(Image.open(person_png).convert("RGBA"))
         ph = round(H * (0.94 if fmt == "youtube" else 0.46))
         person = person.resize((round(person.width * ph / person.height), ph), Image.LANCZOS)
         if fmt == "youtube":
@@ -309,3 +309,138 @@ def draw(
         if busy <= ZONE_BUSY_MAX:
             break
     return composite(best[0], fmt, person_png, accent), cost, alias
+
+
+# ---------------------------------------------------------------- Shorts / Reels covers (the creator's reference)
+# 9:16: a text column on the left (pill, 2–3 line headline with the key phrase on a red block, a subline, 3–4 feature
+# cards), the creator's photo LARGE on the right, a topic pipeline strip at the bottom, then handle + tagline.
+
+SHORT_PHOTO_BOX = (0.50, 0.15, 1.00, 0.79)  # x0, y0, x1, y1 (fractions): kept empty for the creator's photo
+CARD_COLOURS = ("amber", "cyan", "green", "violet")
+
+
+def short_cover_prompt(cover: dict, eyebrow: str, part: str, accent: str, handle: str, tagline: str) -> str:
+    headline = cover.get("headline") or ""
+    hl = cover.get("highlight") or ""
+    cards = []
+    for k, pt in enumerate((cover.get("points") or [])[:4]):
+        title, _, line = str(pt).partition(":")
+        card = f'"{title.strip()}"' + (f' with one small line "{line.strip()}"' if line.strip() else "")
+        cards.append(f"{CARD_COLOURS[k]}-outlined glowing card with a matching line icon: {card}")
+    x0, y0, x1, y1 = (round(v * 100) for v in SHORT_PHOTO_BOX)
+    return (
+        "Design a premium vertical 9:16 cover (YouTube Shorts / Instagram Reels) for a developer-education channel. "
+        "Dark near-black background with subtle red light and depth, crisp neon accents, premium and modern, very "
+        "high contrast, readable as a small thumbnail. Spell every text EXACTLY as given; no other words, no "
+        f'watermark.\n\nTOP: a red-outlined rounded pill at the top-left with a red dot: "{eyebrow}"'
+        + (f', and a bold solid {accent} label "{part}" next to it' if part else "")
+        + f'; at the top-right in clean white text: "{handle}".\n\n'
+        f"LEFT COLUMN (the left 48% of the width): a huge heavy condensed headline, slightly italic, on 2–3 lines: "
+        f'"{headline}" — the words "{hl}" sit on a solid {accent} block (white text) with a short red underline '
+        f'swoosh below; then a subline with a thick {accent} bar on its left: "{cover.get("subline", "")}" (the last '
+        f"words in {accent}); then {len(cards)} stacked rounded cards, each with a thin coloured outline and glow: "
+        + "; ".join(cards)
+        + ".\n\nBOTTOM (full width, near the bottom): a rounded dark strip of 4–5 small icon tiles joined by red "
+        f"arrows, illustrating this idea: {cover.get('visual', '')}. Each tile has a 1–2 word label (a concrete "
+        "noun such as Data, Model, API, Java app — never a phrase from this description, never words like 'split "
+        f"screen'); the last tile is highlighted in {accent}.\n"
+        f'FOOTER: a thin red line, then "{handle}" at the bottom-left and "{tagline}" at the bottom-right '
+        f"(the second half of the tagline in {accent}).\n\n"
+        f"RIGHT SIDE, from {x0}% to {x1}% of the width and {y0}% to {y1}% of the height: keep it EMPTY — only the dark "
+        f"background with a soft {accent} glow. No person, no text, no cards there (the presenter's photo is placed "
+        "there later). A small floating UI card may overlap only the very top-right corner, above that zone."
+    )
+
+
+def _busy_box(design: bytes, size: tuple[int, int], box: tuple[float, float, float, float]) -> float:
+    from PIL import Image, ImageFilter
+
+    W, H = size  # noqa: N806
+    img = _fit(Image.open(io.BytesIO(design)).convert("L"), W, H)
+    crop = img.crop((round(W * box[0]), round(H * box[1]), round(W * box[2]), round(H * box[3])))
+    hist = crop.resize((320, 360)).filter(ImageFilter.FIND_EDGES).histogram()
+    return sum(hist[90:]) / max(1, sum(hist))
+
+
+def strip_frame_ring(person):
+    """Remove a glowing frame ring the source photo had (a blue arc with a white core along the cut-out's edge):
+    clearly blue pixels anywhere, and near-white ones only in a thin band along the edge. Skin and a grey T-shirt are
+    never strongly blue, so the person is untouched."""
+    from PIL import Image, ImageChops, ImageFilter
+
+    r, g, b, a = person.split()
+    # blue glow and the navy photo background inside the ring (skin is red-dominant, a grey T-shirt is neutral)
+    blue = ImageChops.multiply(ImageChops.subtract(b, r).point(lambda v: 255 if v > 25 else 0),
+                               b.point(lambda v: 255 if v > 50 else 0))  # fmt: skip
+    # the ring's bright white core, only in a thin band along the cut-out edge
+    edge_band = ImageChops.subtract(a, a.filter(ImageFilter.MinFilter(11))).point(
+        lambda v: 255 if v > 0 else 0
+    )
+    bright = ImageChops.multiply(ImageChops.multiply(r.point(lambda v: 255 if v > 228 else 0),
+                                                     g.point(lambda v: 255 if v > 228 else 0)),
+                                 b.point(lambda v: 255 if v > 228 else 0))  # fmt: skip
+    kill = ImageChops.lighter(blue, ImageChops.multiply(bright, edge_band)).filter(ImageFilter.MaxFilter(3))
+    a = ImageChops.subtract(a, kill)
+    # a soft fade over the bottom quarter: the person blends into the design (and any ring trace disappears)
+    w, h = person.size
+    fade = Image.linear_gradient("L").rotate(180).resize((w, h))  # 255 at the top → 0 at the bottom
+    fade = fade.point(lambda v: 255 if v > 64 else int(v * 255 / 64))
+    person.putalpha(ImageChops.multiply(a, fade))
+    return person
+
+
+def compose_short_cover(design: bytes, person_png: Path | None, accent: str) -> bytes:
+    """The AI design at 1080×1920 + the creator's real photo, large on the right, standing behind the bottom strip."""
+    from PIL import Image, ImageChops, ImageFilter
+
+    W, H = OUT["short"]  # noqa: N806
+    canvas = _fit(Image.open(io.BytesIO(design)).convert("RGB"), W, H).convert("RGBA")
+    if person_png is not None:
+        x0, y0, x1, y1 = SHORT_PHOTO_BOX
+        person = strip_frame_ring(Image.open(person_png).convert("RGBA"))
+        ph = round(H * (y1 - y0 + 0.03))
+        person = person.resize((round(person.width * ph / person.height), ph), Image.LANCZOS)
+        # the face (the cut-out's centre) at ~78% of the width, as in the reference; whatever of a wide cut-out
+        # (spread arms) would reach over the cards on the left is trimmed with a soft edge
+        x = round(W * 0.78 - person.width / 2)
+        left = round(W * (x0 - 0.04))
+        if x < left:
+            person = person.crop((left - x, 0, person.width, person.height))
+            x = left
+            fade_w = round(W * 0.05)
+            edge = (
+                Image.linear_gradient("L").rotate(90).resize((fade_w, person.height))
+            )  # 0 → 255, left → right
+            mask = Image.new("L", person.size, 255)
+            mask.paste(edge, (0, 0))
+            person.putalpha(ImageChops.multiply(person.getchannel("A"), mask))
+        y = round(H * y1) - ph
+        person = person.crop((0, 0, min(person.width, W - x), person.height))
+        rgb = tuple(int(accent.lstrip("#")[i : i + 2], 16) for i in (0, 2, 4))
+        glow = Image.new("RGBA", person.size, (*rgb, 0))
+        a = person.getchannel("A").filter(ImageFilter.MaxFilter(9)).filter(ImageFilter.GaussianBlur(26))
+        glow.putalpha(a.point(lambda v: int(v * 0.7)))
+        canvas.alpha_composite(glow, (x, y))
+        canvas.alpha_composite(person, (x, y))
+    buf = io.BytesIO()
+    canvas.convert("RGB").save(buf, "JPEG", quality=90, optimize=True)
+    return buf.getvalue()
+
+
+def draw_short_cover(cover: dict, eyebrow: str, part: str, project: Project, profile,
+                     person_png: Path | None) -> tuple[bytes, float, str]:  # fmt: skip
+    accent = style.accent(profile, project)
+    b = profile.brand or {}
+    prompt = short_cover_prompt(cover, eyebrow, part, accent, b.get("handle", ""), b.get("tagline", ""))
+    best, cost, alias = None, 0.0, IMAGE_ALIAS
+    for attempt in range(2 if person_png is not None else 1):
+        img, res = llm.generate_image(IMAGE_ALIAS, prompt + (RETRY_NOTE if attempt else ""), size=CANVAS["short"],
+                                      timeout=300)  # fmt: skip
+        cost, alias = cost + res.cost_usd, res.alias
+        busy = _busy_box(img, OUT["short"], SHORT_PHOTO_BOX) if person_png is not None else 0.0
+        log.info("short cover attempt %d: photo-zone busy %.4f", attempt + 1, busy)
+        if best is None or busy < best[1]:
+            best = (img, busy)
+        if busy <= ZONE_BUSY_MAX:
+            break
+    return compose_short_cover(best[0], person_png, accent), cost, alias
