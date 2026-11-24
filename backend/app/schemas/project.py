@@ -69,6 +69,7 @@ class ProjectOut(BaseModel):
     topic: str
     script_check: dict | None
     direction: dict | None = None
+    publish: dict | None = None
     style_profile_version: int | None
     created_at: datetime
     updated_at: datetime

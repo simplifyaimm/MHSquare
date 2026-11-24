@@ -5,6 +5,7 @@ import { CreativeDirection } from "@/components/CreativeDirection";
 import { CutsReview } from "@/components/CutsReview";
 import { ProjectStatusChip } from "@/components/ProjectStatusChip";
 import { ShotBoard } from "@/components/ShotBoard";
+import { YouTubeDetails } from "@/components/YouTubeDetails";
 import { usePlan } from "@/lib/shots";
 import { CONTENT_TYPE_LABEL, useMarkFinal } from "@/lib/style";
 import { Waveform } from "@/components/Waveform";
@@ -101,6 +102,7 @@ export function ProjectDetailPage() {
       {(p.status === "ready" || p.status === "planning") && <CreativeDirection p={p} />}
       {(p.status === "ready" || p.status === "planning") && <PlanCard p={p} />}
       {p.status === "planned" && <ShotBoard projectId={p.id} />}
+      {(p.status === "planned" || p.status === "ready") && <YouTubeDetails p={p} />}
       {p.status === "planned" && (
         <details className="rounded-xl border border-border bg-surface p-4">
           <summary className="cursor-pointer text-sm text-muted">

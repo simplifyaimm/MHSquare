@@ -49,6 +49,7 @@ def _project_out(p: Project) -> ProjectOut:
         content_type=p.content_type or "long_form", pillar=p.pillar, topic_kind=p.topic_kind,
         audience_level=p.audience_level or "beginner", topic=p.topic or "", script_check=p.script_check,
         direction=p.direction,
+        publish=p.publish,
         style_profile_version=p.style_profile_version,
         created_at=p.created_at, updated_at=p.updated_at,
         assets=[_asset_out(a) for a in sorted(p.assets, key=lambda a: a.created_at) if a.kind in VISIBLE_KINDS],
@@ -395,6 +396,48 @@ def edit_direction(project_id: uuid.UUID, body: DirectionEdit, db: Session = Dep
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(e)) from e
     db.commit()
     return p.direction
+
+
+class PublishEdit(BaseModel):
+    title: str | None = Field(None, max_length=200)
+    description: str | None = Field(None, max_length=6000)
+    tags: list[str] | str | None = None
+    pinned_comment: str | None = Field(None, max_length=1000)
+
+
+@router.post("/projects/{project_id}/publish")
+def generate_publish(project_id: uuid.UUID, db: Session = Depends(get_db)):
+    """YouTube details for this video: titles, description with real chapters, tags (one small AI call)."""
+    from app.llm.errors import LLMError
+    from app.services import publish as PUB
+    from app.services import style as S
+
+    p = _get_project(db, project_id)
+    script = pipeline.latest_asset(db, p.id, AssetKind.script)
+    if script is None:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Upload the script first")
+    text = get_storage().path(script.storage_key).read_text("utf-8-sig")
+    try:
+        p.publish = PUB.generate(db, p, S.active(db), text)
+    except PUB.PublishError as e:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(e)) from e
+    except LLMError as e:
+        raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, f"AI unavailable: {e}"[:500]) from e
+    db.commit()
+    return p.publish
+
+
+@router.put("/projects/{project_id}/publish")
+def edit_publish(project_id: uuid.UUID, body: PublishEdit, db: Session = Depends(get_db)):
+    from app.services import publish as PUB
+
+    p = _get_project(db, project_id)
+    try:
+        p.publish = PUB.edit(p.publish, body.model_dump(exclude_none=True))
+    except PUB.PublishError as e:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(e)) from e
+    db.commit()
+    return p.publish
 
 
 @router.post("/projects/{project_id}/mark-final")

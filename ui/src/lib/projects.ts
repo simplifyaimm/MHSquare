@@ -40,6 +40,7 @@ export type Project = {
   topic: string;
   script_check: import("./style").ScriptCheck | null;
   direction: import("./direction").Direction | null;
+  publish?: import("./publish").Publish | null;
   style_profile_version: number | null;
   created_at: string;
   updated_at: string;
