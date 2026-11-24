@@ -124,6 +124,32 @@ def test_full_ingest_flow(logged_in, sample_audio, sample_facecam):
                        headers=h).status_code == 409  # fmt: skip
 
 
+def test_one_talking_head_video_is_enough(logged_in, sample_audio):
+    """No separate audio: the face-cam recording's own sound becomes the narration; picture and sound stay in
+    sync through the cuts."""
+    client, csrf = logged_in
+    h = {"X-CSRF-Token": csrf}
+    video = Path(TMPDIR) / "talking.mp4"
+    _ffmpeg("-f", "lavfi", "-i", "testsrc2=size=320x180:rate=30:duration=5", "-i", str(sample_audio),
+            "-pix_fmt", "yuv420p", "-c:v", "libx264", "-preset", "ultrafast", "-c:a", "aac", "-shortest",
+            str(video))  # fmt: skip
+    pid = _new_project(client, csrf, "One recording")
+    _upload(client, csrf, pid, "script", SCRIPT, "script.md")
+    _upload(client, csrf, pid, "facecam", video, "talking.mp4")
+    client.patch(f"/api/projects/{pid}", json={"facecam_offset_ms": 300}, headers=h)  # ignored: same file
+    r = client.post(f"/api/projects/{pid}/ingest", headers=h)
+    assert r.status_code == 202 and r.json()["status"] == "cuts_review", r.json()["error"]
+    cuts = client.get(f"/api/projects/{pid}/cuts").json()
+    assert cuts["audio"]["meta"]["from_video"] is True and [c["text"] for c in cuts["ranges"]] == ["um,"]
+    r = client.post(f"/api/projects/{pid}/cuts/approve", json={"enabled_ids": ["c1"]}, headers=h).json()
+    assert r["status"] == "ready" and r["facecam_offset_ms"] == 0, r["error"]
+    assets = {a["kind"]: a for a in r["assets"]}
+    assert (
+        abs(assets["facecam_final"]["meta"]["duration_ms"] - assets["audio_final"]["meta"]["duration_ms"])
+        <= 70
+    )
+
+
 def test_failure_is_recorded_and_retry_resumes(logged_in, sample_audio, monkeypatch):
     client, csrf = logged_in
     h = {"X-CSRF-Token": csrf}

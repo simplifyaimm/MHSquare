@@ -23,7 +23,7 @@ export function ProjectSetupPage() {
   if (p.status !== "draft" && p.status !== "failed") return <Navigate to={`/projects/${id}`} replace />;
 
   const has = (k: string) => p.assets.some((a) => a.kind === k);
-  const done = [has("script"), has("audio"), true, true, false];
+  const done = [has("script"), has("audio") || has("facecam"), true, true, false];
 
   return (
     <div className="mx-auto flex max-w-3xl flex-col gap-6">
@@ -122,8 +122,8 @@ function NarrationStep({ p }: { p: Project }) {
         projectId={p.id}
         kind="audio"
         accept=".wav,.m4a,.mp3"
-        label="Narration audio"
-        hint="Your recorded voice-over. It gets cleaned and normalised to −14 LUFS."
+        label="Narration audio (optional with a talking-head video)"
+        hint="Your recorded voice-over. It gets cleaned and normalised to −14 LUFS. Skip it if you upload a talking-head video below: its own sound is used."
         assets={p.assets.filter((a) => a.kind === "audio")}
       />
       <DraftNarration p={p} />
@@ -131,8 +131,8 @@ function NarrationStep({ p }: { p: Project }) {
         projectId={p.id}
         kind="facecam"
         accept=".mp4,.mov,.webm,.mkv"
-        label="Face-cam video (optional)"
-        hint="Recorded at the same time as the narration. The same cuts are applied to it."
+        label="Talking-head video (optional)"
+        hint="You on camera. Long videos show it as the circle (bottom-right), Shorts below the animation. On its own it is enough: its sound becomes the narration. With separate audio, record both at the same time; the same cuts are applied to it."
         assets={p.assets.filter((a) => a.kind === "facecam")}
       />
       {hasCam && (
@@ -249,7 +249,11 @@ function StartStep({ p, ready }: { p: Project; ready: boolean }) {
           {p.error}
         </p>
       )}
-      {!ready && <p className="text-sm text-warning">Upload the script and the narration audio first.</p>}
+      {!ready && (
+        <p className="text-sm text-warning">
+          Upload the script and the narration audio or a talking-head video first.
+        </p>
+      )}
       <Button
         size="lg"
         disabled={!ready || start.isPending}

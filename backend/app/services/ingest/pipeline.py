@@ -108,8 +108,8 @@ def _store_waveform(db: Session, p: Project, audio_path: Path, stage: str) -> No
 def check_ready_for_ingest(db: Session, p: Project) -> None:
     if not latest_asset(db, p.id, AssetKind.script):
         raise IngestError("Upload the script first")
-    if not latest_asset(db, p.id, AssetKind.audio):
-        raise IngestError("Upload the narration audio first")
+    if not latest_asset(db, p.id, AssetKind.audio) and not latest_asset(db, p.id, AssetKind.facecam):
+        raise IngestError("Upload the narration audio or a talking-head video first")
 
 
 def begin_ingest(db: Session, p: Project) -> None:
@@ -157,13 +157,19 @@ def step_cleanup(project_id: str) -> None:
                 return
             _set(db, p, ProjectStatus.ingesting, IngestStep.cleanup)
             audio = latest_asset(db, pid, AssetKind.audio)
-            if audio is None:
-                raise IngestError("no narration audio")
+            from_video = False
+            if audio is None:  # one talking-head recording: its sound is the narration
+                audio = latest_asset(db, pid, AssetKind.facecam)
+                if audio is None:
+                    raise IngestError("no narration audio")
+                from_video = True
+                p.facecam_offset_ms = 0  # the same file: picture and sound are in sync by definition
             storage = get_storage()
             with _workdir() as wd:
                 out = Path(wd) / "clean.wav"
                 media.get_cleaner("ffmpeg").clean(storage.path(audio.storage_key), out)
-                meta = media.media_meta(out) | {"cleaner": "ffmpeg", "source_asset_id": str(audio.id)}
+                meta = media.media_meta(out) | {"cleaner": "ffmpeg", "source_asset_id": str(audio.id),
+                                                "from_video": from_video}  # fmt: skip
                 clean = replace_derived(db, p, AssetKind.audio_clean, out, "wav", "audio/wav", meta)
             _store_waveform(db, p, storage.path(clean.storage_key), "clean")
             _set(db, p, ProjectStatus.ingesting, IngestStep.transcribe_raw)

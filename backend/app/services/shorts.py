@@ -482,12 +482,25 @@ def render(short_id: str) -> None:
                 )
                 dur = clip.duration_ms / 1000
                 out = work / "short.mp4"
-                _ffmpeg("-loop", "1", "-framerate", str(p.fps), "-i", str(chrome), "-i", str(stage),
-                        "-ss", f"{clip.start_ms / 1000:.3f}", "-t", f"{dur:.3f}", "-i", str(storage.path(audio.storage_key)),
-                        "-filter_complex", f"[0:v][1:v]overlay=0:{STAGE_Y}:shortest=1,ass={ass}:fontsdir=/usr/share/fonts/brand[v]",
-                        "-map", "[v]", "-map", "2:a", "-t", f"{dur:.3f}", "-c:v", "libx264", "-preset", "veryfast",
-                        "-crf", "20", "-pix_fmt", "yuv420p", "-r", str(p.fps), "-c:a", "aac", "-b:a", "192k",
-                        "-movflags", "+faststart", str(out))  # fmt: skip
+                at = ["-ss", f"{clip.start_ms / 1000:.3f}", "-t", f"{dur:.3f}"]
+                inputs = ["-loop", "1", "-framerate", str(p.fps), "-i", str(chrome), "-i", str(stage),
+                          *at, "-i", str(storage.path(audio.storage_key))]  # fmt: skip
+                graph = f"[0:v][1:v]overlay=0:{STAGE_Y}:shortest=1[base]"
+                # the creator's talking head: the same moment of the face-cam recording (cut and synced with
+                # the narration at ingest) fills the zone below the animation
+                cam = latest_asset(db, p.id, AssetKind.facecam_final)
+                with_face = cam is not None and storage.exists(cam.storage_key)
+                if with_face:
+                    inputs += [*at, "-i", str(storage.path(cam.storage_key))]
+                    graph += (f";[3:v]scale={W}:{H - FACE_Y}:force_original_aspect_ratio=increase,"
+                              f"crop={W}:{H - FACE_Y},fps={p.fps},setpts=PTS-STARTPTS[face];"
+                              f"[base][face]overlay=0:{FACE_Y}:eof_action=repeat[withface]")  # fmt: skip
+                graph += (
+                    f";[{'withface' if with_face else 'base'}]ass={ass}:fontsdir=/usr/share/fonts/brand[v]"
+                )
+                _ffmpeg(*inputs, "-filter_complex", graph, "-map", "[v]", "-map", "2:a", "-t", f"{dur:.3f}",
+                        "-c:v", "libx264", "-preset", "veryfast", "-crf", "20", "-pix_fmt", "yuv420p",
+                        "-r", str(p.fps), "-c:a", "aac", "-b:a", "192k", "-movflags", "+faststart", str(out))  # fmt: skip
                 Path(chrome).unlink(missing_ok=True)
                 if clip.asset_id:  # re-render replaces the old file
                     old = db.get(Asset, clip.asset_id)
@@ -503,7 +516,7 @@ def render(short_id: str) -> None:
                 db.flush()
                 clip.asset_id, clip.status = a.id, "done"
                 clip.meta = {**{k: v for k, v in (clip.meta or {}).items() if k != "stale"}, "rendered_at": datetime.now(UTC).isoformat(timespec="seconds"),
-                             "layout": {"stage": [0, STAGE_Y, STAGE_W, STAGE_H], "face_zone": [0, FACE_Y, W, H - FACE_Y]}}  # fmt: skip
+                             "with_face": with_face, "layout": {"stage": [0, STAGE_Y, STAGE_W, STAGE_H], "face_zone": [0, FACE_Y, W, H - FACE_Y]}}  # fmt: skip
             db.commit()
         except Exception as ex:  # noqa: BLE001
             log.exception("short render failed")
@@ -547,4 +560,5 @@ def as_json(clip: ShortClip) -> dict:
             "series": clip.series, "part": clip.part, "parts": clip.parts, "hook": clip.hook, "title": clip.title,
             "description": clip.description, "hashtags": clip.hashtags, "why": clip.why, "score": clip.score,
             "status": clip.status, "error": clip.error, "stale": bool((clip.meta or {}).get("stale")),
+            "with_face": bool((clip.meta or {}).get("with_face")),
             "url": signed_media_url(clip.asset_id) if clip.asset_id else None}  # fmt: skip

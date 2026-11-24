@@ -136,6 +136,37 @@ def test_plan_and_render_through_the_api(fakes, ready_project, monkeypatch, tmp_
         streams = json.loads(probe.stdout)["streams"]
         assert {"codec_type": "video", "width": 1080, "height": 1920} in streams
         assert any(x["codec_type"] == "audio" for x in streams)
+        assert s["with_face"] is False  # no face-cam yet: the zone stays empty for the creator
+
+        # with a face-cam recording, the same moment fills the zone below the animation
+        import uuid as _uuid
+
+        from app.core.db import get_sessionmaker
+        from app.models import Asset, AssetKind
+        from app.services.storage import get_storage
+
+        with get_sessionmaker()() as db:
+            key = get_storage().new_key(_uuid.UUID(pid), "mp4")
+            subprocess.run(["ffmpeg", "-nostdin", "-v", "error", "-y", "-f", "lavfi", "-i",  # noqa: S603, S607
+                            "color=c=0xf0c8a0:s=640x360:r=30:d=6", "-pix_fmt", "yuv420p",
+                            str(get_storage().path(key))], check=True)  # fmt: skip
+            db.add(Asset(project_id=_uuid.UUID(pid), kind=AssetKind.facecam_final, storage_key=key, sha256="x",
+                         size=1, mime="video/mp4", meta={}))  # fmt: skip
+            db.commit()
+        assert c.post(f"/api/shorts/{s['id']}/render", headers=h).status_code == 202
+        s = c.get(f"/api/projects/{pid}/shorts").json()["shorts"][0]
+        assert s["status"] == "done" and s["with_face"] is True, s["error"]
+        mp4 = tmp_path / "face.mp4"
+        mp4.write_bytes(c.get(s["url"]).content)
+
+        def pixel(y: int) -> tuple[int, ...]:
+            raw = subprocess.run(["ffmpeg", "-nostdin", "-v", "error", "-ss", "0.5", "-i", str(mp4), "-frames:v",  # noqa: S603, S607
+                                  "1", "-vf", f"crop=2:2:540:{y}", "-f", "rawvideo", "-pix_fmt", "rgb24", "-"],
+                                 capture_output=True, check=True).stdout  # fmt: skip
+            return tuple(raw[:3])
+
+        assert pixel(1600)[0] > 200  # the (skin-tone) face-cam fills the bottom zone
+        assert pixel(700)[0] < 80  # the animation stage above is untouched
         assert c.delete(f"/api/shorts/{s['id']}", headers=h).status_code == 204
         assert c.get(f"/api/projects/{pid}/shorts").json()["shorts"] == []
     finally:
