@@ -42,7 +42,8 @@ STAGE_W, STAGE_H, STAGE_Y = 1080, 1000, 300
 FACE_Y = STAGE_Y + STAGE_H  # 1300: the empty talking-head zone below
 CAPTION_BOTTOM = FACE_Y - 22  # captions sit in the stage's bottom band (templates keep it free)
 MIN_MS, MAX_MS = 20_000, 75_000
-STAGE_VERSION = "s2"  # bump when the stage render changes: cached clip segments are then rebuilt
+STAGE_VERSION = "s2"  # bump when the template stage render changes: cached segments are then rebuilt
+FITTED_VERSION = "f2"  # the same for text cards and fitted 16:9 scenes
 # templates are authored on a slightly smaller CSS canvas and rendered at 1.11×: bigger text and cards on a phone
 AUTHOR_W, AUTHOR_H = 972, 900
 AUTHOR_SCALE = STAGE_W / AUTHOR_W
@@ -293,31 +294,36 @@ def _bg(profile) -> str:
 
 def stage_segment(db: Session, p: Project, profile, shot: Shot, cache: Path, words: list[dict]) -> Path:
     """One shot on the vertical stage (1080×1000), exactly as many frames as the shot lasts. Cached."""
-    from app.services.generation import GP, _best_take, icon_runtime, renderer
+    from app.services.generation import GP, _best_take, icon_runtime, renderer, text_card_scene
 
     n = round(shot.end_ms * p.fps / 1000) - round(shot.start_ms * p.fps / 1000)
     take = _best_take(db, shot)
-    key = hashlib.blake2b(f"{STAGE_VERSION}|{shot.prompt}|{shot.theme}|{n}|{take.id if take else ''}|{p.pillar}"
+    try:
+        parsed = T.parse(shot.prompt)
+    except T.TemplateError:
+        parsed = None
+    native = parsed is not None or shot.visual_type == "text_card"
+    version = STAGE_VERSION if parsed else FITTED_VERSION
+    key = hashlib.blake2b(f"{version}|{shot.prompt}|{shot.theme}|{n}|{take.id if take else ''}|{p.pillar}"
                        .encode(), digest_size=10).hexdigest()  # fmt: skip
     out = cache / f"{shot.index:04d}_{key}.mp4"
     if out.exists():
         return out
     bg = _bg(profile)
     src, fitted = None, False
-    try:
-        parsed = T.parse(shot.prompt)
-    except T.TemplateError:
-        parsed = None
-    if parsed:  # re-draw the template natively for the vertical stage: sharp and free
+    if native:  # templates and text cards are re-drawn natively for the vertical stage: sharp and free
         try:
-            ents = {e["id"]: e for e in (p.style_guide or {}).get("entities", [])}
-            from app.services.generation.icons import icons
+            if parsed:
+                ents = {e["id"]: e for e in (p.style_guide or {}).get("entities", [])}
+                from app.services.generation.icons import icons
 
-            ctx = T.Ctx(w=AUTHOR_W, h=AUTHOR_H, short=True, zones=[], duration=shot.duration_ms / 1000,
-                        words=[{"w": w["w"], "t": round((w["start_ms"] - shot.start_ms) / 1000, 2)} for w in words
-                               if shot.start_ms <= w["start_ms"] < shot.end_ms],
-                        entities=ents, icons=frozenset(icons()))  # fmt: skip
-            sc = T.build(parsed[0], parsed[1], ctx)
+                ctx = T.Ctx(w=AUTHOR_W, h=AUTHOR_H, short=True, zones=[], duration=shot.duration_ms / 1000,
+                            words=[{"w": w["w"], "t": round((w["start_ms"] - shot.start_ms) / 1000, 2)}
+                                   for w in words if shot.start_ms <= w["start_ms"] < shot.end_ms],
+                            entities=ents, icons=frozenset(icons()))  # fmt: skip
+                sc = T.build(parsed[0], parsed[1], ctx)
+            else:
+                sc = text_card_scene(shot)
             r = renderer.render(html=sc.html, css=sc.css, js=GP.RUNTIME_JS + "\n" + icon_runtime() + "\n" + sc.js,
                                 theme_css=style.theme_css(profile, p, shot.theme, _stage_canvas()), width=AUTHOR_W,
                                 height=AUTHOR_H, fps=p.fps, duration_ms=shot.duration_ms, scale=AUTHOR_SCALE)  # fmt: skip
@@ -334,8 +340,11 @@ def stage_segment(db: Session, p: Project, profile, shot: Shot, cache: Path, wor
             "-f", "lavfi", "-i", f"color=c=0x{bg}:s={STAGE_W}x{STAGE_H}:r={p.fps}:d={n / p.fps:.3f}", *common
         )
     else:
-        fit = f"scale={STAGE_W}:{STAGE_H}," if fitted else (f"scale={STAGE_W}:{STAGE_H}:force_original_aspect_ratio=decrease,"
-                                 f"pad={STAGE_W}:{STAGE_H}:(ow-iw)/2:(oh-ih)/2:color=0x{bg},")  # fmt: skip
+        # a 16:9 scene: crop its empty margins and footer (content lives inside x 6–94 %, y 5–91 %), then fit
+        fit = f"scale={STAGE_W}:{STAGE_H}," if fitted else (
+            "crop=iw*0.9:ih*0.86:iw*0.05:ih*0.05,"
+            f"scale={STAGE_W}:{STAGE_H}:force_original_aspect_ratio=decrease,"
+            f"pad={STAGE_W}:{STAGE_H}:(ow-iw)/2:(oh-ih)/2:color=0x{bg},")  # fmt: skip
         _ffmpeg(
             "-i",
             str(src),
