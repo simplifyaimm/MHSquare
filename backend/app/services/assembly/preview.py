@@ -13,6 +13,7 @@ import logging
 import os
 import tempfile
 import uuid
+import zlib
 from concurrent.futures import ThreadPoolExecutor
 from functools import partial
 from pathlib import Path
@@ -30,8 +31,11 @@ from app.services.storage import get_storage
 log = logging.getLogger(__name__)
 FONT = Path("/usr/share/fonts/brand/Poppins-SemiBold.ttf")
 FOOTER_GENERATORS = {"html_motion", "html_animation", "template", "image", "video"}
-PARALLEL = max(1, min(4, (os.cpu_count() or 2) // 2))  # concurrent shot encodes
-PROXY_VERSION = "p1"  # bump when the proxy encode settings change: old cached clips are then rebuilt
+CPUS = os.cpu_count() or 2
+# concurrent shot encodes and x264 threads each. Proxy clips are small (720p); a final 1080p/4K encode needs far
+# more memory per job (4 parallel 4K "slow" encodes exhausted the 8 GB Docker VM and hung Docker).
+JOBS = {"proxy": (max(1, min(4, CPUS // 2)), 2), "final": (2, max(2, CPUS // 2))}
+PROXY_VERSION = "p2"  # bump when the proxy encode settings change: old cached clips are then rebuilt
 
 
 def _escape_drawtext(s: str) -> str:
@@ -41,8 +45,21 @@ def _escape_drawtext(s: str) -> str:
 QUALITY = {
     # key: (meta key, asset kind, crf, preset, audio bitrate)
     "proxy": ("preview", "preview", "24", "veryfast", "160k"),
-    "final": ("final", "final_render", "18", "slow", "320k"),
+    # motion graphics at crf 18: "veryfast" measured 24 fps on 4K vs 11 fps for "slow", PSNR 54.7 vs 57.5 dB
+    # (both far above the ~45 dB visibility threshold) and a smaller file; YouTube re-encodes the upload anyway
+    "final": ("final", "final_render", "18", "veryfast", "320k"),
 }
+
+
+def _watermark(profile, cv: style.Canvas, W: int) -> str:  # noqa: N803
+    """drawtext filter for the top-right watermark (shots without the brand footer), or ''."""
+    text = style.watermark_text(profile)
+    if not text or not FONT.exists():
+        return ""
+    unit = W / (540 if cv.is_short else 1280)
+    size = round((18 if cv.is_short else 20) * unit)
+    return (f"drawtext=fontfile={FONT}:text='{_escape_drawtext(text)}':fontsize={size}:fontcolor=white@0.72:"
+            f"x=w-tw-{round(28 * unit)}:y={round(24 * unit)}:shadowcolor=black@0.5:shadowx=1:shadowy=1")  # fmt: skip
 
 
 def _size(p: Project, cv: style.Canvas, quality: str) -> tuple[int, int]:
@@ -63,24 +80,33 @@ def _proxy_cache(project_id: uuid.UUID) -> Path:
     return d
 
 
-def _take_segment(src: Path, out: Path, W: int, H: int, bg: str, fps: int, n: int, quality: str) -> None:  # noqa: N803
-    """One shot's take, fitted to the frame and held to exactly n frames. The proxy downscales with the fast
-    bilinear filter: shot renders are 4K, and the default scaler was most of the preview build time."""
+def _take_segment(src: Path | None, out: Path, W: int, H: int, bg: str, fps: int, n: int, quality: str,  # noqa: N803
+                  wm: str = "") -> None:  # fmt: skip
+    """One shot, fitted to the frame and held to exactly n frames (no take → brand background), with the
+    watermark burned in here so the whole video never needs a second full encode for it. The proxy downscales
+    with the fast bilinear filter: shot renders are 4K, and the default scaler was most of the preview time."""
     _, _, crf, preset, _ = QUALITY[quality]
+    threads = JOBS[quality][1]
     flags = ":flags=fast_bilinear" if quality == "proxy" else ""
     part = out.with_name(f"{out.stem}.{uuid.uuid4().hex[:8]}.part")  # unique: warm-up and a build may race
-    _ffmpeg("-i", str(src), "-vf",
-            f"scale={W}:{H}:force_original_aspect_ratio=decrease{flags},pad={W}:{H}:(ow-iw)/2:(oh-ih)/2:color=0x{bg},"
-            f"fps={fps},tpad=stop_mode=clone:stop_duration={n / fps:.3f}",
-            "-frames:v", str(n), "-an", "-c:v", "libx264", "-preset", preset, "-crf", crf, "-pix_fmt", "yuv420p",
-            "-r", str(fps), "-threads", "2", "-f", "mp4", str(part))  # fmt: skip
+    if src is None:
+        inp, vf = ["-f", "lavfi", "-i", f"color=c=0x{bg}:s={W}x{H}:r={fps}:d={n / fps:.3f}"], "null"
+    else:
+        inp = ["-i", str(src)]
+        vf = (f"scale={W}:{H}:force_original_aspect_ratio=decrease{flags},pad={W}:{H}:(ow-iw)/2:(oh-ih)/2:"
+              f"color=0x{bg},fps={fps},tpad=stop_mode=clone:stop_duration={n / fps:.3f}")  # fmt: skip
+    if wm:
+        vf += "," + wm
+    _ffmpeg(*inp, "-vf", vf, "-frames:v", str(n), "-an", "-c:v", "libx264", "-preset", preset, "-crf", crf,
+            "-pix_fmt", "yuv420p", "-r", str(fps), "-threads", str(threads), "-f", "mp4", str(part))  # fmt: skip
     part.replace(out)  # atomic: a half-written clip is never picked up from the cache
 
 
-def _proxy_path(p: Project, shot: Shot, take, W: int, H: int, bg: str) -> tuple[Path, int]:  # noqa: N803
+def _proxy_path(p: Project, shot: Shot, take, W: int, H: int, bg: str, wm: str = "") -> tuple[Path, int]:  # noqa: N803
     """Cached proxy clip of a take: keyed by the take and everything that changes its pixels."""
     a, b = round(shot.start_ms * p.fps / 1000), round(shot.end_ms * p.fps / 1000)
-    return _proxy_cache(p.id) / f"{PROXY_VERSION}_{take.id}_{W}x{H}_{p.fps}_{b - a}_{bg}.mp4", b - a
+    tag = f"_wm{zlib.crc32(wm.encode()):08x}" if wm else ""
+    return _proxy_cache(p.id) / f"{PROXY_VERSION}_{take.id}_{W}x{H}_{p.fps}_{b - a}_{bg}{tag}.mp4", b - a
 
 
 def _encoded_audio(project_id: uuid.UUID, audio, abr: str) -> Path:
@@ -118,12 +144,14 @@ def warm_proxy(take_id: str) -> bool:
         if best is None or best.id != take.id:
             return False
         profile = style.active(db)
-        W, H = _size(p, style.canvas(profile, p), "proxy")  # noqa: N806
+        cv = style.canvas(profile, p)
+        W, H = _size(p, cv, "proxy")  # noqa: N806
         bg = _bg(profile)
-        out, n = _proxy_path(p, shot, take, W, H, bg)
+        wm = "" if cv.footer and take.generator in FOOTER_GENERATORS else _watermark(profile, cv, W)
+        out, n = _proxy_path(p, shot, take, W, H, bg, wm)
         if n <= 0 or out.exists():
             return False
-        _take_segment(storage.path(take.storage_key), out, W, H, bg, p.fps, n, "proxy")
+        _take_segment(storage.path(take.storage_key), out, W, H, bg, p.fps, n, "proxy", wm)
         return True
 
 
@@ -150,7 +178,8 @@ def build_preview(project_id: str, quality: str = "proxy") -> None:
             root.mkdir(parents=True, exist_ok=True)
             with tempfile.TemporaryDirectory(dir=root) as wd:
                 work = Path(wd)
-                listing, missing, wm_windows, jobs, used = [], 0, [], [], set()
+                listing, missing, jobs, used = [], 0, [], set()
+                watermark = _watermark(profile, cv, W)
                 for s in shots:
                     a, b = round(s.start_ms * fps / 1000), round(s.end_ms * fps / 1000)
                     n = b - a
@@ -159,31 +188,25 @@ def build_preview(project_id: str, quality: str = "proxy") -> None:
                     take = _best_take(db, s)
                     if take and take.storage_key and storage.exists(take.storage_key):
                         src = storage.path(take.storage_key)
+                        wm = "" if cv.footer and take.generator in FOOTER_GENERATORS else watermark
                         if quality == "proxy":  # reuse the clip from the last build or from warm_proxy
-                            seg, _ = _proxy_path(p, s, take, W, H, bg)
+                            seg, _ = _proxy_path(p, s, take, W, H, bg, wm)
                             used.add(seg.name)
                         else:
                             seg = work / f"s{s.index:04d}.mp4"
-                        if not seg.exists():
-                            jobs.append(partial(_take_segment, src, seg, W, H, bg, fps, n, quality))
-                        has_footer = cv.footer and take.generator in FOOTER_GENERATORS
                     else:
                         missing += 1
-                        seg = work / f"s{s.index:04d}.mp4"
-                        jobs.append(partial(_ffmpeg, "-f", "lavfi", "-i", f"color=c=0x{bg}:s={W}x{H}:r={fps}:d={n / fps:.3f}",
-                                            "-frames:v", str(n), "-c:v", "libx264", "-preset", preset, "-crf", crf,
-                                            "-pix_fmt", "yuv420p", "-r", str(fps), str(seg)))  # fmt: skip
-                        has_footer = False
-                    if not has_footer:
-                        wm_windows.append((a / fps, b / fps))
+                        src, wm, seg = None, watermark, work / f"s{s.index:04d}.mp4"
+                    if not seg.exists():
+                        jobs.append(partial(_take_segment, src, seg, W, H, bg, fps, n, quality, wm))
                     listing.append(f"file '{seg}'")
-                # shots are independent: encode them in parallel (each ffmpeg is capped at 2 threads)
-                with ThreadPoolExecutor(max_workers=PARALLEL) as pool:
+                # shots are independent: encode them in parallel (bounded by memory for the final render)
+                with ThreadPoolExecutor(max_workers=JOBS[quality][0]) as pool:
                     list(pool.map(lambda job: job(), jobs))
                 (work / "list.txt").write_text("\n".join(listing))
                 video = work / "video.mp4"
                 _ffmpeg("-f", "concat", "-safe", "0", "-i", str(work / "list.txt"), "-c", "copy", str(video))
-                video = _overlays(p, profile, cv, video, work, W, H, wm_windows, crf, preset)
+                video = _facecam(p, profile, cv, video, work, W, H, crf, preset)
                 out = work / f"{kind}.mp4"
                 aac = _encoded_audio(p.id, audio, abr)  # the narration rarely changes: encode it once
                 _ffmpeg("-i", str(video), "-i", str(aac), "-map", "0:v", "-map", "1:a", "-c", "copy",
@@ -225,9 +248,10 @@ def recover_interrupted() -> int:
     return n
 
 
-def _overlays(p, profile, cv: style.Canvas, video: Path, work: Path, W: int, H: int,  # noqa: N803
-              wm_windows: list[tuple[float, float]], crf: str = "24", preset: str = "veryfast") -> Path:  # fmt: skip
-    """Face-cam circle (long-form) + top-right watermark on shots without the footer."""
+def _facecam(p, profile, cv: style.Canvas, video: Path, work: Path, W: int, H: int,  # noqa: N803
+             crf: str = "24", preset: str = "veryfast") -> Path:  # fmt: skip
+    """Face-cam circle (long-form): the only overlay that needs a pass over the whole video (the watermark is
+    burned into each shot clip)."""
     storage = get_storage()
     inputs, chains, last = ["-i", str(video)], [], "0:v"
     cam = None
@@ -260,15 +284,6 @@ def _overlays(p, profile, cv: style.Canvas, video: Path, work: Path, W: int, H: 
             f"[v1][cam]overlay={int(cx - d / 2)}:{int(cy - d / 2)}:eof_action=pass[v2]",
         ]
         last = "v2"
-    text = style.watermark_text(profile)
-    if wm_windows and text and FONT.exists():
-        enable = "+".join(f"between(t,{a:.3f},{b - 0.001:.3f})" for a, b in wm_windows)
-        size = round((18 if cv.is_short else 20) * W / (540 if cv.is_short else 1280))
-        chains.append(
-            f"[{last}]drawtext=fontfile={FONT}:text='{_escape_drawtext(text)}':fontsize={size}:"
-            f"fontcolor=white@0.72:x=w-tw-{round(28 * W / (540 if cv.is_short else 1280))}:y={round(24 * W / (540 if cv.is_short else 1280))}:shadowcolor=black@0.5:shadowx=1:shadowy=1:enable='{enable}'[v3]"
-        )
-        last = "v3"
     if not chains:
         return video
     out = work / "video_overlay.mp4"
