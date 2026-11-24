@@ -420,8 +420,12 @@ def captions_ass(words: list[dict], start_ms: int, end_ms: int, accent: str) -> 
 
 CHROME_CSS = """
 .sh-bg{position:absolute;inset:0;background:#03060c}
-.sh-top{position:absolute;left:64px;right:64px;top:70px;height:156px;display:flex;flex-direction:column;
+.sh-top{position:absolute;left:64px;right:64px;top:52px;height:176px;display:flex;flex-direction:column;
   align-items:flex-start;justify-content:flex-end;gap:12px}
+.sh-row{display:flex;align-items:center;gap:14px}
+.sh-part{font:700 36px/1 var(--f-head);letter-spacing:.04em;text-transform:uppercase;color:#fff;
+  background:var(--accent);padding:8px 16px 6px;border-radius:10px;
+  box-shadow:0 6px 24px color-mix(in srgb,var(--accent) 45%,transparent)}
 .sh-badge{display:inline-flex;align-items:center;gap:10px;padding:8px 18px;border-radius:999px;
   background:color-mix(in srgb,var(--accent) 18%,#060b14);border:2px solid var(--accent);
   font:600 22px/1 var(--f-mono);letter-spacing:.14em;text-transform:uppercase;color:#fff}
@@ -445,16 +449,86 @@ def chrome_png(p: Project, profile, clip: ShortClip) -> Path:
     from app.services.generation import GP, icon_runtime, renderer
 
     cv = style.Canvas(W, H, W, H, 0, True, [], False, None)
-    badge = (f"{clip.series} · Part {clip.part}/{clip.parts}" if clip.series
-             else (profile.brand or {}).get("handle", ""))  # fmt: skip
+    badge = clip.series or (profile.brand or {}).get("handle", "")
+    part = f'<div class="sh-part">Part {clip.part}/{clip.parts}</div>' if clip.series else ""
     words = clip.hook.split()
     hook = " ".join(f'<span class="hl">{h.escape(w)}</span>' if k == len(words) - 1 else h.escape(w)
                     for k, w in enumerate(words))  # fmt: skip
     html = ('<div class="sh-bg"></div>'
-            f'<div class="sh-top">{f"<div class=sh-badge><i class=mh-led></i>{h.escape(badge)}</div>" if badge else ""}'
+            f'<div class="sh-top"><div class="sh-row">{part}'
+            f'{f"<div class=sh-badge><i class=mh-led></i>{h.escape(badge)}</div>" if badge else ""}</div>'
             f'<div class="sh-hook">{hook}</div></div>')  # fmt: skip
     return renderer.render_still(html=html, css=CHROME_CSS, js=GP.RUNTIME_JS + icon_runtime() + FIT_JS,
                                  theme_css=style.theme_css(profile, p, "tech", cv), width=W, height=H)  # fmt: skip
+
+
+END_S = 3.0  # the end card's length, over the last seconds of the panel (face and narration continue)
+
+END_CSS = """
+.ec{position:absolute;left:56px;right:56px;top:0;bottom:0;display:flex;flex-direction:column;justify-content:center;
+  align-items:flex-start;gap:22px}
+.ec-eyebrow{font:600 24px/1 var(--f-mono);letter-spacing:.16em;text-transform:uppercase;color:var(--accent)}
+.ec-big{font:700 104px/.95 var(--f-head);text-transform:uppercase;color:#fff;letter-spacing:.005em}
+.ec-big .hl{color:var(--accent);text-shadow:0 0 40px color-mix(in srgb,var(--accent) 60%,transparent)}
+.ec-sub{font:500 34px/1.25 var(--f-body);color:#c9d4e3;max-width:860px;text-wrap:balance}
+.ec-cta{display:inline-flex;align-items:center;gap:16px;margin-top:14px;padding:18px 28px;border-radius:999px;
+  background:var(--accent);color:#fff;font:700 34px/1 var(--f-head);text-transform:uppercase;letter-spacing:.03em;
+  box-shadow:0 10px 40px color-mix(in srgb,var(--accent) 55%,transparent)}
+.ec-cta [data-icon]{font-size:40px;color:#fff}  /* icons default to the accent colour: invisible on the accent button */
+#bell{transform-origin:50% 10%}
+"""
+
+
+def end_card(clip: ShortClip, next_clip: ShortClip | None, long_title: str) -> tuple[str, str]:
+    """(html, js) of the closing card: the next part of a series, or 'follow for more' + the full video."""
+    import html as h
+
+    if clip.series and clip.part and clip.parts and clip.part < clip.parts:
+        eyebrow = clip.series
+        big = f'Part <span class="hl">{clip.part + 1}</span> next'
+        sub = next_clip.hook if next_clip is not None else ""
+        cta = "Follow so you don't miss it"
+    else:
+        eyebrow = clip.series or "Want the full picture?"
+        big = 'Follow <span class="hl">for more</span>'
+        sub = f"Full video: {long_title}" if long_title else ""
+        cta = "Follow"
+    html = ('<div class="mh-bg"></div><div class="mh-glow" style="left:40px;top:-120px"></div><div class="ec">'
+            f'<div class="ec-eyebrow" id="e1">{h.escape(eyebrow)}</div><div class="ec-big" id="e2">{big}</div>'
+            + (f'<div class="ec-sub" id="e3">{h.escape(sub)}</div>' if sub else "")
+            + f'<div class="ec-cta" id="e4"><span id="bell"><i data-icon="bell-ring"></i></span>{h.escape(cta)}'
+            '<i data-icon="arrow-right"></i></div></div>')  # fmt: skip
+    js = (f"const tl = gsap.timeline(); window.__scene = tl; const D = {END_S};\n"
+          "tl.from('#e1', {y:30, opacity:0, duration:.35, ease:'power3.out'}, .05);\n"
+          "tl.from('#e2', {y:50, opacity:0, duration:.45, ease:'power3.out'}, .15);\n"
+          "if (document.querySelector('#e3')) tl.from('#e3', {y:30, opacity:0, duration:.4, ease:'power3.out'}, .35);\n"
+          "tl.from('#e4', {scale:.6, opacity:0, duration:.45, ease:'back.out(2)'}, .6);\n"
+          "tl.to('#bell', {rotation:18, duration:.09, yoyo:true, repeat:9, ease:'sine.inOut'}, 1.1);\n"
+          "tl.to('#e4', {scale:1.06, duration:.35, yoyo:true, repeat:3, ease:'sine.inOut'}, 1.3);\n"
+          "tl.set({}, {}, D);")  # fmt: skip
+    return html, js
+
+
+def end_card_video(p: Project, profile, clip: ShortClip, next_clip: ShortClip | None, long_title: str,
+                   cache: Path) -> Path:  # fmt: skip
+    """The end card as a 1080×880 clip (the panel area above the captions and the talking head). Cached."""
+    from app.services.generation import GP, icon_runtime, renderer
+
+    html, js = end_card(clip, next_clip, long_title)
+    key = hashlib.blake2b(f"e2|{html}|{p.pillar}".encode(), digest_size=10).hexdigest()
+    out = cache / f"end_{key}.mp4"
+    if out.exists():
+        return out
+    r = renderer.render(html=html, css=END_CSS, js=GP.RUNTIME_JS + "\n" + icon_runtime() + "\n" + js,
+                        theme_css=style.theme_css(profile, p, "tech", _stage_canvas(AUTHOR_CLEAR_H)),
+                        width=AUTHOR_W, height=AUTHOR_CLEAR_H, fps=p.fps, duration_ms=int(END_S * 1000),
+                        scale=AUTHOR_SCALE)  # fmt: skip
+    part = out.with_name(f"{out.stem}.{uuid.uuid4().hex[:6]}.part")
+    _ffmpeg("-i", str(r.video), "-vf", f"scale={STAGE_W}:{CLEAR_H},fps={p.fps}", "-an", "-c:v", "libx264",
+            "-preset", "veryfast", "-crf", "18", "-pix_fmt", "yuv420p", "-f", "mp4", str(part))  # fmt: skip
+    Path(r.video).unlink(missing_ok=True)
+    part.replace(out)
+    return out
 
 
 def render(short_id: str) -> None:
@@ -498,14 +572,25 @@ def render(short_id: str) -> None:
                 at = ["-ss", f"{clip.start_ms / 1000:.3f}", "-t", f"{dur:.3f}"]
                 inputs = ["-loop", "1", "-framerate", str(p.fps), "-i", str(chrome), "-i", str(stage),
                           *at, "-i", str(storage.path(audio.storage_key))]  # fmt: skip
-                graph = f"[0:v][1:v]overlay=0:{STAGE_Y}:shortest=1[base]"
+                graph = f"[0:v][1:v]overlay=0:{STAGE_Y}:shortest=1[stage]"
+                # the closing card over the panel's last seconds: the next part of a series, or follow for more
+                nxt = None
+                if clip.series and clip.part:
+                    nxt = db.scalar(select(ShortClip).where(ShortClip.project_id == p.id,
+                                                            ShortClip.series == clip.series,
+                                                            ShortClip.part == clip.part + 1))  # fmt: skip
+                long_title = (p.publish or {}).get("title") or p.topic or p.name
+                end = end_card_video(p, profile, clip, nxt, long_title, cache)
+                inputs += ["-i", str(end)]
+                graph += (f";[3:v]setpts=PTS-STARTPTS+{max(0.0, dur - END_S):.3f}/TB[end];"
+                          f"[stage][end]overlay=0:{STAGE_Y}:eof_action=pass[base]")  # fmt: skip
                 # the creator's talking head: the same moment of the face-cam recording (cut and synced with
-                # the narration at ingest) fills the zone below the animation
+                # the narration at ingest), over the panel's bottom-left
                 cam = latest_asset(db, p.id, AssetKind.facecam_final)
                 with_face = cam is not None and storage.exists(cam.storage_key)
                 if with_face:
                     inputs += [*at, "-i", str(storage.path(cam.storage_key))]
-                    graph += (f";[3:v]scale={FACE_W}:{FACE_H}:force_original_aspect_ratio=increase,"
+                    graph += (f";[4:v]scale={FACE_W}:{FACE_H}:force_original_aspect_ratio=increase,"
                               f"crop={FACE_W}:{FACE_H},fps={p.fps},setpts=PTS-STARTPTS[face];"
                               f"[base][face]overlay={FACE_X}:{FACE_Y}:eof_action=repeat[withface]")  # fmt: skip
                 graph += (

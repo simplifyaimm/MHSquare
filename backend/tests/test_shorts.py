@@ -126,6 +126,17 @@ def test_plan_and_render_through_the_api(fakes, ready_project, monkeypatch, tmp_
 
         monkeypatch.setattr(SH, "stage_segment", fake_segment)
         monkeypatch.setattr(SH, "chrome_png", fake_chrome)
+        ends = []
+
+        def fake_end(p, profile, clip, nxt, long_title, cache):
+            ends.append((clip.hook, nxt, long_title))
+            out = tmp_path / "end.mp4"
+            subprocess.run(["ffmpeg", "-nostdin", "-v", "error", "-y", "-f", "lavfi", "-i",  # noqa: S603, S607
+                            f"color=c=0x00ff00:s=1080x880:r={p.fps}:d=3", "-pix_fmt", "yuv420p", str(out)],
+                           check=True)  # fmt: skip
+            return out
+
+        monkeypatch.setattr(SH, "end_card_video", fake_end)
         assert c.post(f"/api/projects/{pid}/shorts/render", headers=h).json()["queued"] == 1
         s = c.get(f"/api/projects/{pid}/shorts").json()["shorts"][0]
         assert s["status"] == "done", s["error"]
@@ -171,3 +182,23 @@ def test_plan_and_render_through_the_api(fakes, ready_project, monkeypatch, tmp_
         assert c.get(f"/api/projects/{pid}/shorts").json()["shorts"] == []
     finally:
         celery_app.conf.task_always_eager = False
+
+
+def test_end_card_points_to_the_next_part_or_to_more():
+    part1 = SimpleNamespace(series="Two worlds of AI", part=1, parts=3, hook="Where does it come from?")
+    part2 = SimpleNamespace(series="Two worlds of AI", part=2, parts=3, hook="Use models <without> training")
+    html, js = SH.end_card(part1, part2, "Java devs: do you need Python?")
+    assert 'Part <span class="hl">2</span> next' in html and "Follow so you don" in html
+    assert "Use models &lt;without&gt; training" in html  # escaped
+    assert 'data-icon="bell-ring"' in html and "tl.set({}, {}, D)" in js and "const D = 3.0" in js
+    last = SimpleNamespace(series="Two worlds of AI", part=3, parts=3, hook="h")
+    html, _ = SH.end_card(last, None, "Java devs: do you need Python?")
+    assert "for more" in html and "Full video: Java devs" in html
+    alone = SimpleNamespace(series=None, part=None, parts=None, hook="h")
+    assert "for more" in SH.end_card(alone, None, "")[0]
+
+
+def test_bell_icons_are_in_the_library():
+    from app.services.generation.icons import icons
+
+    assert {"bell", "bell-ring", "user-plus"} <= set(icons())
