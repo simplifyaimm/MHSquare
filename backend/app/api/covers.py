@@ -90,6 +90,8 @@ class CoversIn(BaseModel):
     headshot_id: uuid.UUID | None = None
     count: int = Field(4, ge=1, le=6)
     note: str = Field("", max_length=1000)
+    # "ai": an image model designs the cover (your real photo composited on top); "template": the free brand layout
+    engine: Literal["ai", "template"] = "ai"
 
 
 def _cover_out(a: Asset) -> dict:
@@ -112,7 +114,7 @@ def make_covers(project_id: uuid.UUID, body: CoversIn, db: Session = Depends(get
     p.plan_meta = {**(p.plan_meta or {}), "covers": {"status": "running"}}
     db.commit()
     tasks.covers_generate.delay(str(p.id), list(body.formats), str(body.headshot_id) if body.headshot_id else None,
-                                body.count, body.note)  # fmt: skip
+                                body.count, body.note, body.engine)  # fmt: skip
     return {"status": "running"}
 
 

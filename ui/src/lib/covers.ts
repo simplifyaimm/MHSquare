@@ -24,11 +24,22 @@ export type Cover = {
   eyebrow: string;
   icons: string[];
   layout: string;
+  engine?: CoverEngine;
   created_at: string;
 };
 
+/** "ai": an image model designs the cover, your real photo composited on top; "template": free brand layout. */
+export type CoverEngine = "ai" | "template";
+
 export type CoversResponse = {
-  status: { status?: string; error?: string; made?: number; cost_usd?: number; with_photo?: boolean };
+  status: {
+    status?: string;
+    error?: string;
+    made?: number;
+    cost_usd?: number;
+    with_photo?: boolean;
+    engine?: CoverEngine;
+  };
   covers: Cover[];
 };
 
@@ -76,8 +87,13 @@ export function useCoverMutations(pid: string) {
   const done = () => qc.invalidateQueries({ queryKey: ["covers", pid] });
   return {
     generate: useMutation({
-      mutationFn: (b: { formats: string[]; headshot_id: string | null; count: number; note: string }) =>
-        api(`/projects/${pid}/covers`, { method: "POST", body: JSON.stringify(b) }),
+      mutationFn: (b: {
+        formats: string[];
+        headshot_id: string | null;
+        count: number;
+        note: string;
+        engine: CoverEngine;
+      }) => api(`/projects/${pid}/covers`, { method: "POST", body: JSON.stringify(b) }),
       onSuccess: done,
     }),
     choose: useMutation({

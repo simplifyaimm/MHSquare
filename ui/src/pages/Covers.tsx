@@ -5,7 +5,7 @@ import { CreatorPhotos } from "@/components/CreatorPhotos";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
-import { useCoverMutations, useCovers, useHeadshots, type Cover } from "@/lib/covers";
+import { useCoverMutations, useCovers, useHeadshots, type Cover, type CoverEngine } from "@/lib/covers";
 import { useProject } from "@/lib/projects";
 import { cn } from "@/lib/utils";
 
@@ -23,6 +23,7 @@ export function CoversPage() {
   const [photo, setPhoto] = useState<string>("");
   const [count, setCount] = useState(4);
   const [note, setNote] = useState("");
+  const [engine, setEngine] = useState<CoverEngine>("ai");
   const running = data?.status.status === "running";
   const ready = (photos ?? []).filter((h) => h.status === "ready");
 
@@ -47,12 +48,34 @@ export function CoversPage() {
             <Wand2 size={16} /> Generate covers
           </CardTitle>
           <p className="text-sm text-muted">
-            ≤ 4-word English headline, technical keywords in your pillar colour, your cut-out photo with the
-            brand glow, icons from the same library as your videos. Free to render; one small AI call for the
-            headline ideas.
+            {engine === "ai"
+              ? "An image model designs each cover — headline, subline, badges, a diagram with real tool logos — in your pillar colour on the brand's dark grid. Your real cut-out photo is placed on top with a rim light (your face is never AI-generated). About $0.05 per cover."
+              : "Brand layout: ≤ 4-word headline, keywords in your pillar colour, your cut-out photo with the glow, icons from the same library as your videos. Free to render; one small AI call for the headline ideas."}
           </p>
         </CardHeader>
         <CardContent className="flex flex-col gap-4">
+          <div className="flex flex-wrap gap-2" role="radiogroup" aria-label="Cover style">
+            {(
+              [
+                ["ai", "AI-designed (image model)"],
+                ["template", "Brand template (free)"],
+              ] as const
+            ).map(([id, label]) => (
+              <button
+                key={id}
+                type="button"
+                role="radio"
+                aria-checked={engine === id}
+                onClick={() => setEngine(id)}
+                className={cn(
+                  "rounded-full border px-3 py-1.5 text-sm",
+                  engine === id ? "border-accent bg-accent/20" : "border-border text-muted hover:text-text",
+                )}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
           <div className="flex flex-wrap gap-4 text-sm">
             {(["youtube", "short"] as const).map((f) => (
               <label key={f} className="flex items-center gap-2">
@@ -99,7 +122,9 @@ export function CoversPage() {
             />
             <Button
               disabled={!fm.length || running || m.generate.isPending}
-              onClick={() => m.generate.mutate({ formats: fm, headshot_id: photo || null, count, note })}
+              onClick={() =>
+                m.generate.mutate({ formats: fm, headshot_id: photo || null, count, note, engine })
+              }
             >
               {running ? <Loader2 size={16} className="animate-spin" /> : <ImageIcon size={16} />}
               {running ? "Designing…" : "Generate covers"}
@@ -136,6 +161,9 @@ export function CoversPage() {
                   <img src={c.url} alt={c.headline} className="w-full" loading="lazy" />
                   <div className="flex items-center gap-1 p-2">
                     <span className="min-w-0 flex-1 truncate text-sm">{c.headline}</span>
+                    {c.engine === "ai" && (
+                      <span className="rounded-full border border-border px-2 text-xs text-muted">AI</span>
+                    )}
                     <Button
                       size="sm"
                       variant={c.chosen ? "success" : "secondary"}

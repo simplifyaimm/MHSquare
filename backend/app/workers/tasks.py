@@ -129,8 +129,13 @@ def media_cutout(brand_asset_id: str) -> None:
 
 @celery_app.task(name="covers.generate")
 def covers_generate(
-    project_id: str, formats: list[str], headshot_id: str | None, n: int, note: str = ""
+    project_id: str,
+    formats: list[str],
+    headshot_id: str | None,
+    n: int,
+    note: str = "",
+    engine: str = "template",
 ) -> None:
     from app.services import covers
 
-    covers.generate(project_id, formats, headshot_id, n, note)
+    covers.generate(project_id, formats, headshot_id, n, note, engine)

@@ -260,7 +260,7 @@ def test_cover_generation_flow(logged_in, monkeypatch):
 
         monkeypatch.setattr(client, "chat", fake_chat)
         monkeypatch.setattr(renderer, "render_still", fake_still)
-        r = c.post(f"/api/projects/{pid}/covers", json={"count": 2}, headers=h)
+        r = c.post(f"/api/projects/{pid}/covers", json={"count": 2, "engine": "template"}, headers=h)
         assert r.status_code == 202
         d = c.get(f"/api/projects/{pid}/covers").json()
         assert d["status"]["status"] == "done" and d["status"]["made"] == 4 and d["status"]["with_photo"]

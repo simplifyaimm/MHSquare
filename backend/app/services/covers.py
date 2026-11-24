@@ -272,7 +272,8 @@ def person_b64(headshot: BrandAsset | None, max_h: int = 1100) -> str | None:
 # ---------------------------------------------------------------- orchestration (worker)
 
 
-def generate(project_id: str, formats: list[str], headshot_id: str | None, n: int, note: str = "") -> None:
+def generate(project_id: str, formats: list[str], headshot_id: str | None, n: int, note: str = "",
+             engine: str = "template") -> None:  # fmt: skip
     pid = uuid.UUID(project_id)
     with get_sessionmaker()() as db:
         p = db.get(Project, pid)
@@ -289,10 +290,17 @@ def generate(project_id: str, formats: list[str], headshot_id: str | None, n: in
             if headshot is None:
                 headshot = db.scalar(select(BrandAsset).where(BrandAsset.status == "ready")
                                      .order_by(BrandAsset.created_at.desc()))  # fmt: skip
-            pb64 = person_b64(headshot)
-            opts, cost = ideas(p, profile, text, n, note)
             batch = uuid.uuid4().hex[:8]
             storage = get_storage()
+            if engine == "ai":
+                made, cost, with_photo = _generate_ai(db, p, profile, text, formats, headshot, n, note, batch)
+                meta["covers"] = {"status": "done", "made": made, "cost_usd": round(cost, 4), "batch": batch,
+                                  "with_photo": with_photo, "engine": "ai"}  # fmt: skip
+                p.plan_meta = meta
+                db.commit()
+                return
+            pb64 = person_b64(headshot)
+            opts, cost = ideas(p, profile, text, n, note)
             made = 0
             for i, o in enumerate(opts):
                 for fmt in formats:
@@ -320,6 +328,49 @@ def generate(project_id: str, formats: list[str], headshot_id: str | None, n: in
             meta["covers"] = {"status": "failed", "error": f"{type(e).__name__}: {e}"[:1500]}
         p.plan_meta = meta
         db.commit()
+
+
+def _generate_ai(db, p: Project, profile, script: str, formats: list[str], headshot: BrandAsset | None, n: int,
+                 note: str, batch: str) -> tuple[int, float, bool]:  # fmt: skip
+    """AI-designed covers (covers_ai): plan concepts, draw each with the image model, composite the real photo.
+    One failed drawing doesn't lose the others; if none succeeds the error is raised."""
+    from app.llm.errors import ErrorKind, LLMError
+    from app.services import covers_ai as AI
+
+    storage = get_storage()
+    person = None
+    if headshot is not None and headshot.status == "ready" and headshot.cutout_key:
+        person = storage.path(headshot.cutout_key)
+    title = (p.publish or {}).get("title", "")
+    concepts, cost = AI.plan(p, profile, script, n, note, title)
+    made, errors = 0, []
+    for i, c in enumerate(concepts):
+        for fmt in formats:
+            try:
+                jpg, img_cost, alias = AI.draw(c, fmt, p, profile, person)
+            except LLMError as ex:
+                if ex.kind == ErrorKind.budget:
+                    raise  # out of credit: stop, don't burn the rest
+                errors.append(str(ex)[:200])
+                continue
+            cost += img_cost
+            key = storage.new_key(p.id, "jpg")
+            with tempfile.NamedTemporaryFile(suffix=".jpg", delete=False, dir=storage.root) as f:
+                f.write(jpg)
+            size, digest = storage.put_file(key, Path(f.name))
+            Path(f.name).unlink(missing_ok=True)
+            db.add(Asset(project_id=p.id, kind="cover", storage_key=key, sha256=digest, size=size, mime="image/jpeg",
+                         original_name=f"cover-{fmt}-{i + 1}.jpg",
+                         meta={"engine": "ai", "image_model": alias, "headline": c.headline_text,
+                               "highlight": [c.highlight] if c.highlight else [], "eyebrow": c.eyebrow,
+                               "concept": c.model_dump(), "format": fmt, "option": i + 1, "batch": batch,
+                               "chosen": False, "headshot_id": str(headshot.id) if person else None,
+                               "style_profile_version": profile.version}))  # fmt: skip
+            db.commit()  # each cover appears as soon as it is ready
+            made += 1
+    if not made:
+        raise RuntimeError("no cover could be drawn: " + "; ".join(errors)[:800])
+    return made, cost, person is not None
 
 
 def strip_thin_structures(img):
