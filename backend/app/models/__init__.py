@@ -9,6 +9,7 @@ from app.models.project import (
     Transcript,
     Upload,
 )
+from app.models.short import ShortClip
 from app.models.shot import Shot, ShotState, Take, VisualType
 from app.models.style import BrandAsset, CoveredTopic, StyleProfile
 from app.models.user import AuthSession, User
@@ -26,6 +27,7 @@ __all__ = [
     "Transcript",
     "CutProposal",
     "Shot",
+    "ShortClip",
     "ShotState",
     "Take",
     "VisualType",

@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { Link, Navigate, useNavigate, useParams } from "react-router-dom";
-import { ArrowLeft, Check, ImageIcon, Loader2, RotateCcw, Trash2, Wand2 } from "lucide-react";
+import { ArrowLeft, Check, Clapperboard, ImageIcon, Loader2, RotateCcw, Trash2, Wand2 } from "lucide-react";
 import { CreativeDirection } from "@/components/CreativeDirection";
 import { CutsReview } from "@/components/CutsReview";
 import { ProjectStatusChip } from "@/components/ProjectStatusChip";
@@ -67,6 +67,13 @@ export function ProjectDetailPage() {
             <ImageIcon size={14} /> Covers
           </Button>
         </Link>
+        {p.status === "planned" && (
+          <Link to={`/projects/${p.id}/shorts`}>
+            <Button size="sm" variant="ghost">
+              <Clapperboard size={14} /> Shorts
+            </Button>
+          </Link>
+        )}
         <span className="ml-auto">
           {confirmDelete ? (
             <span className="flex items-center gap-2 text-sm">

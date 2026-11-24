@@ -139,3 +139,27 @@ def covers_generate(
     from app.services import covers
 
     covers.generate(project_id, formats, headshot_id, n, note, engine)
+
+
+# ---------------------------------------------------------------- shorts / reels from the long video
+@celery_app.task(name="shorts.plan", **DB_RETRY)
+def shorts_plan(project_id: str) -> None:
+    from app.services import shorts
+
+    shorts.plan(project_id)
+
+
+@celery_app.task(name="shorts.render", **DB_RETRY)
+def shorts_render(short_id: str) -> None:
+    from app.services import shorts
+
+    shorts.render(short_id)
+
+
+def _register_shorts() -> None:
+    from app.services import shorts
+
+    shorts.register_dispatch("plan", lambda pid: shorts_plan.delay(pid))
+
+
+_register_shorts()
