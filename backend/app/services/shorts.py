@@ -830,7 +830,8 @@ def make_cover(short_id: str) -> None:
                              .order_by(BrandAsset.created_at.desc()))  # fmt: skip
             storage = get_storage()
             person = storage.path(head.cutout_key) if head else None
-            eyebrow = clip.series or (p.topic or p.name)
+            # a series names itself; a standalone Short is labelled with its own subject (the title before ":")
+            eyebrow = clip.series or re.split(r"[:|(]", clip.title)[0].strip() or (p.topic or p.name)
             part = f"PART {clip.part}/{clip.parts}" if clip.series else ""
             jpg, cost, alias = AI.draw_short_cover(
                 cover, _clip(eyebrow, 32).upper(), part, p, profile, person

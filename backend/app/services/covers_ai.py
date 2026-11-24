@@ -315,7 +315,7 @@ def draw(
 # 9:16: a text column on the left (pill, 2–3 line headline with the key phrase on a red block, a subline, 3–4 feature
 # cards), the creator's photo LARGE on the right, a topic pipeline strip at the bottom, then handle + tagline.
 
-SHORT_PHOTO_BOX = (0.50, 0.15, 1.00, 0.79)  # x0, y0, x1, y1 (fractions): kept empty for the creator's photo
+SHORT_PHOTO_BOX = (0.52, 0.15, 1.00, 0.79)  # x0, y0, x1, y1 (fractions): kept empty for the creator's photo
 CARD_COLOURS = ("amber", "cyan", "green", "violet")
 
 
@@ -335,7 +335,7 @@ def short_cover_prompt(cover: dict, eyebrow: str, part: str, accent: str, handle
         f'watermark.\n\nTOP: a red-outlined rounded pill at the top-left with a red dot: "{eyebrow}"'
         + (f', and a bold solid {accent} label "{part}" next to it' if part else "")
         + f'; at the top-right in clean white text: "{handle}".\n\n'
-        f"LEFT COLUMN (the left 48% of the width): a huge heavy condensed headline, slightly italic, on 2–3 lines: "
+        f"LEFT COLUMN (the left 46% of the width; no text may run past it — wrap or shorten lines instead): a huge heavy condensed headline, slightly italic, on 2–3 lines: "
         f'"{headline}" — the words "{hl}" sit on a solid {accent} block (white text) with a short red underline '
         f'swoosh below; then a subline with a thick {accent} bar on its left: "{cover.get("subline", "")}" (the last '
         f"words in {accent}); then {len(cards)} stacked rounded cards, each with a thin coloured outline and glow: "
@@ -403,7 +403,7 @@ def compose_short_cover(design: bytes, person_png: Path | None, accent: str) -> 
         # the face (the cut-out's centre) at ~78% of the width, as in the reference; whatever of a wide cut-out
         # (spread arms) would reach over the cards on the left is trimmed with a soft edge
         x = round(W * 0.78 - person.width / 2)
-        left = round(W * (x0 - 0.04))
+        left = round(W * (x0 - 0.01))
         if x < left:
             person = person.crop((left - x, 0, person.width, person.height))
             x = left
