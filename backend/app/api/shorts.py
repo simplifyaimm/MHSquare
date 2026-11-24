@@ -36,7 +36,7 @@ def list_shorts(project_id: uuid.UUID, db: Session = Depends(get_db)):
     p = _project(db, project_id)
     rows = db.scalars(select(ShortClip).where(ShortClip.project_id == p.id).order_by(ShortClip.index))
     layout = {"width": SH.W, "height": SH.H, "stage": [0, SH.STAGE_Y, SH.STAGE_W, SH.STAGE_H],
-              "face_zone": [0, SH.FACE_Y, SH.W, SH.H - SH.FACE_Y]}  # fmt: skip
+              "face_zone": [SH.FACE_X, SH.FACE_Y, SH.FACE_W, SH.FACE_H]}  # fmt: skip
     return {
         "status": (p.plan_meta or {}).get("shorts", {}),
         "layout": layout,

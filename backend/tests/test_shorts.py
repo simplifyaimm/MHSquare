@@ -99,7 +99,7 @@ def test_plan_and_render_through_the_api(fakes, ready_project, monkeypatch, tmp_
         assert (
             d["status"]["status"] == "done"
             and len(d["shorts"]) == 1
-            and d["layout"]["face_zone"] == [0, 1300, 1080, 620]
+            and d["layout"]["face_zone"] == [64, 1240, 600, 620]
         )
         s = d["shorts"][0]
         assert s["hook"] == "Why Kafka?" and s["status"] == "planned" and s["url"] is None

@@ -105,10 +105,11 @@ export function ShortsPage() {
           <p>
             The AI picks self-contained 25–60 s moments (whole shots, so your narration never starts or ends
             mid-sentence), groups multi-step ideas into a series (Part 1, Part 2…) and orders them for daily
-            posting. Each vertical video has the hook at the top, your animation re-drawn for 9:16 with
-            word-by-word captions, and an <b className="text-text">empty 1080×620 zone at the bottom</b> for
-            your talking head (≈16:9, so a landscape face video drops in as-is). Rendering is free; finding
-            Shorts is one small AI call. Already-rendered Shorts are kept when you find again.
+            posting. Each vertical video has the hook at the top, your animation re-drawn as a tall 9:16
+            panel with word-by-word captions, and <b className="text-text">your talking head over its
+            bottom-left corner</b> (the same moment of your face-cam recording; the scenes keep that corner
+            clear). Rendering is free; finding Shorts is one small AI call. Already-rendered Shorts are kept
+            when you find again.
           </p>
           {data?.status.status === "done" && (
             <p>
@@ -153,10 +154,11 @@ function ShortCard({ s, pid }: { s: Short; pid: string }) {
               className="aspect-[9/16] w-full rounded-lg bg-black"
             />
           ) : (
-            <div className="relative flex aspect-[9/16] w-full flex-col overflow-hidden rounded-lg border border-border bg-surface-2 text-xs text-muted">
-              <div className="h-[15.6%] border-b border-border p-2 font-medium text-text">{hook}</div>
-              <div className="flex h-[52%] items-center justify-center border-b border-border">animation</div>
-              <div className="flex flex-1 items-center justify-center border-2 border-dashed border-accent/50 m-1 rounded">
+            <div className="relative aspect-[9/16] w-full overflow-hidden rounded-lg border border-border bg-black text-xs text-muted">
+              {/* the real layout, in % of 1080×1920: band 0–240, panel 240–1760, face 64,1240 600×620 */}
+              <div className="absolute inset-x-2 top-[4%] h-[8%] font-medium leading-tight text-text">{hook}</div>
+              <div className="absolute inset-x-0 top-[12.5%] h-[79.2%] bg-surface-2 p-2 text-center">animation</div>
+              <div className="absolute left-[5.9%] top-[64.6%] flex h-[32.3%] w-[55.6%] items-center justify-center border-2 border-dashed border-accent/60 bg-surface">
                 your talking head
               </div>
               {isBusy(s) && (

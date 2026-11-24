@@ -4,12 +4,14 @@
    so the narration never starts or ends mid-sentence), writes the on-screen hook, title, description and
    hashtags, and groups multi-step ideas into a series. Code validates everything: real shot ranges, 20–75 s,
    no overlaps, series part numbers, a daily posting order, YouTube/Instagram limits.
-2. render(): a 1080×1920 vertical video per clip, laid out for a talking head the creator adds later:
+2. render(): a 1080×1920 vertical video per clip (the creator's chosen layout):
 
-     0–300      header: series badge + hook title (brand fonts)
-     300–1300   the animation, 1080×1000. Template shots are RE-DRAWN natively for this frame (free, sharp);
-                other shots are their 16:9 render fitted in. Word-by-word captions sit in its bottom band.
-     1300–1920  EMPTY, 1080×620 (≈16:9): the creator's landscape talking head drops in as-is.
+     0–240        dark top band: series badge + hook title (brand fonts)
+     240–1760     the animation panel, 1080×1520. Template shots are RE-DRAWN natively for it (free, sharp) and
+                  keep their content above the talking-head corner; text cards and 16:9 renders fill the area
+                  above it. Word-by-word captions sit just above the talking head.
+     x 64, y 1240 the talking head, 600×620, over the panel's bottom-left (running past its bottom edge):
+                  the same moment of the cut face-cam; empty if there is none.
 
    Audio is the creator's real narration for the clip's time range.
 """
@@ -38,15 +40,17 @@ from app.services.storage import get_storage
 log = logging.getLogger(__name__)
 
 W, H = 1080, 1920
-STAGE_W, STAGE_H, STAGE_Y = 1080, 1000, 300
-FACE_Y = STAGE_Y + STAGE_H  # 1300: the empty talking-head zone below
-CAPTION_BOTTOM = FACE_Y - 22  # captions sit in the stage's bottom band (templates keep it free)
+STAGE_W, STAGE_H, STAGE_Y = 1080, 1520, 240  # the animation panel
+FACE_X, FACE_Y, FACE_W, FACE_H = 64, 1240, 600, 620  # the talking head, over the panel's bottom-left
+CLEAR_H = FACE_Y - STAGE_Y - 120  # 880: scene content stays above this (captions + face below)
+CAPTION_BOTTOM = FACE_Y - 16  # captions right above the talking head
 MIN_MS, MAX_MS = 20_000, 75_000
-STAGE_VERSION = "s2"  # bump when the template stage render changes: cached segments are then rebuilt
-FITTED_VERSION = "f2"  # the same for text cards and fitted 16:9 scenes
+STAGE_VERSION = "s3"  # bump when the template stage render changes: cached segments are then rebuilt
+FITTED_VERSION = "f3"  # the same for text cards and fitted 16:9 scenes
 # templates are authored on a slightly smaller CSS canvas and rendered at 1.11×: bigger text and cards on a phone
-AUTHOR_W, AUTHOR_H = 972, 900
+AUTHOR_W, AUTHOR_H = 972, 1368
 AUTHOR_SCALE = STAGE_W / AUTHOR_W
+AUTHOR_CLEAR_H = round(CLEAR_H / AUTHOR_SCALE)  # 792
 _dispatch: dict = {}
 
 
@@ -278,8 +282,13 @@ def begin_plan(db: Session, p: Project) -> None:
 # ---------------------------------------------------------------- rendering
 
 
-def _stage_canvas() -> style.Canvas:
-    return style.Canvas(AUTHOR_W, AUTHOR_H, W, H, STAGE_Y, True, [], False, None)
+def _stage_canvas(h: int = AUTHOR_H) -> style.Canvas:
+    return style.Canvas(AUTHOR_W, h, W, H, STAGE_Y, True, [], False, None)
+
+
+# where the captions and the talking head sit, in the templates' authoring coordinates: content stays above it
+FACE_ZONE = {"name": "talking head + captions", "x": 0, "y": AUTHOR_CLEAR_H, "w": AUTHOR_W,
+             "h": AUTHOR_H - AUTHOR_CLEAR_H}  # fmt: skip
 
 
 def _words(db: Session, project_id: uuid.UUID) -> list[dict]:
@@ -293,7 +302,7 @@ def _bg(profile) -> str:
 
 
 def stage_segment(db: Session, p: Project, profile, shot: Shot, cache: Path, words: list[dict]) -> Path:
-    """One shot on the vertical stage (1080×1000), exactly as many frames as the shot lasts. Cached."""
+    """One shot on the vertical panel (1080×1520), exactly as many frames as the shot lasts. Cached."""
     from app.services.generation import GP, _best_take, icon_runtime, renderer, text_card_scene
 
     n = round(shot.end_ms * p.fps / 1000) - round(shot.start_ms * p.fps / 1000)
@@ -310,26 +319,27 @@ def stage_segment(db: Session, p: Project, profile, shot: Shot, cache: Path, wor
     if out.exists():
         return out
     bg = _bg(profile)
-    src, fitted = None, False
-    if native:  # templates and text cards are re-drawn natively for the vertical stage: sharp and free
+    src, mode = None, "fit16x9"
+    if native:  # templates and text cards are re-drawn natively for the vertical panel: sharp and free
         try:
-            if parsed:
+            if parsed:  # the whole panel; the template keeps its content above the talking-head corner
                 ents = {e["id"]: e for e in (p.style_guide or {}).get("entities", [])}
                 from app.services.generation.icons import icons
 
-                ctx = T.Ctx(w=AUTHOR_W, h=AUTHOR_H, short=True, zones=[], duration=shot.duration_ms / 1000,
+                ctx = T.Ctx(w=AUTHOR_W, h=AUTHOR_H, short=True, zones=[FACE_ZONE], duration=shot.duration_ms / 1000,
                             words=[{"w": w["w"], "t": round((w["start_ms"] - shot.start_ms) / 1000, 2)}
                                    for w in words if shot.start_ms <= w["start_ms"] < shot.end_ms],
                             entities=ents, icons=frozenset(icons()))  # fmt: skip
-                sc = T.build(parsed[0], parsed[1], ctx)
-            else:
-                sc = text_card_scene(shot)
+                sc, ah, mode = T.build(parsed[0], parsed[1], ctx), AUTHOR_H, "panel"
+            else:  # a centred card: drawn on the area above the talking head only
+                sc, ah, mode = text_card_scene(shot), AUTHOR_CLEAR_H, "top"
             r = renderer.render(html=sc.html, css=sc.css, js=GP.RUNTIME_JS + "\n" + icon_runtime() + "\n" + sc.js,
-                                theme_css=style.theme_css(profile, p, shot.theme, _stage_canvas()), width=AUTHOR_W,
-                                height=AUTHOR_H, fps=p.fps, duration_ms=shot.duration_ms, scale=AUTHOR_SCALE)  # fmt: skip
-            src, fitted = r.video, True
+                                theme_css=style.theme_css(profile, p, shot.theme, _stage_canvas(ah)), width=AUTHOR_W,
+                                height=ah, fps=p.fps, duration_ms=shot.duration_ms, scale=AUTHOR_SCALE)  # fmt: skip
+            src = r.video
         except Exception as ex:  # noqa: BLE001 — fall back to the 16:9 render
             log.warning("shot %s: vertical template render failed (%s); using the 16:9 take", shot.index, ex)
+            mode = "fit16x9"
     if src is None and take and take.storage_key and get_storage().exists(take.storage_key):
         src = get_storage().path(take.storage_key)
     part = out.with_name(f"{out.stem}.{uuid.uuid4().hex[:6]}.part")
@@ -340,11 +350,15 @@ def stage_segment(db: Session, p: Project, profile, shot: Shot, cache: Path, wor
             "-f", "lavfi", "-i", f"color=c=0x{bg}:s={STAGE_W}x{STAGE_H}:r={p.fps}:d={n / p.fps:.3f}", *common
         )
     else:
-        # a 16:9 scene: crop its empty margins and footer (content lives inside x 6–94 %, y 5–91 %), then fit
-        fit = f"scale={STAGE_W}:{STAGE_H}," if fitted else (
-            "crop=iw*0.9:ih*0.86:iw*0.05:ih*0.05,"
-            f"scale={STAGE_W}:{STAGE_H}:force_original_aspect_ratio=decrease,"
-            f"pad={STAGE_W}:{STAGE_H}:(ow-iw)/2:(oh-ih)/2:color=0x{bg},")  # fmt: skip
+        fit = {
+            "panel": f"scale={STAGE_W}:{STAGE_H},",
+            "top": f"scale={STAGE_W}:{CLEAR_H},pad={STAGE_W}:{STAGE_H}:0:0:color=0x{bg},",
+            # a 16:9 scene: crop its empty margins and footer (content inside x 6–94 %, y 5–91 %), then fit it
+            # into the area above the talking head
+            "fit16x9": ("crop=iw*0.9:ih*0.86:iw*0.05:ih*0.05,"
+                        f"scale={STAGE_W}:{CLEAR_H}:force_original_aspect_ratio=decrease,"
+                        f"pad={STAGE_W}:{STAGE_H}:(ow-iw)/2:({CLEAR_H}-ih)/2:color=0x{bg},"),
+        }[mode]  # fmt: skip
         _ffmpeg(
             "-i",
             str(src),
@@ -352,7 +366,7 @@ def stage_segment(db: Session, p: Project, profile, shot: Shot, cache: Path, wor
             f"{fit}fps={p.fps},tpad=stop_mode=clone:stop_duration={n / p.fps:.3f}",
             *common,
         )
-        if fitted:
+        if mode != "fit16x9":  # a temporary native render (never the stored take)
             Path(src).unlink(missing_ok=True)
     part.replace(out)
     return out
@@ -405,27 +419,27 @@ def captions_ass(words: list[dict], start_ms: int, end_ms: int, accent: str) -> 
 
 
 CHROME_CSS = """
-.sh-top{position:absolute;left:64px;right:64px;top:112px;display:flex;flex-direction:column;align-items:flex-start;gap:14px}
+.sh-bg{position:absolute;inset:0;background:#03060c}
+.sh-top{position:absolute;left:64px;right:64px;top:70px;height:156px;display:flex;flex-direction:column;
+  align-items:flex-start;justify-content:flex-end;gap:12px}
 .sh-badge{display:inline-flex;align-items:center;gap:10px;padding:8px 18px;border-radius:999px;
   background:color-mix(in srgb,var(--accent) 18%,#060b14);border:2px solid var(--accent);
   font:600 22px/1 var(--f-mono);letter-spacing:.14em;text-transform:uppercase;color:#fff}
-.sh-hook{font:700 64px/1.02 var(--f-head);text-transform:uppercase;color:#fff;letter-spacing:.005em;
+.sh-hook{font:700 50px/1.02 var(--f-head);text-transform:uppercase;color:#fff;letter-spacing:.005em;
   text-shadow:0 4px 0 rgba(0,0,0,.35),0 0 30px rgba(0,0,0,.5)}
 .sh-hook .hl{color:var(--accent)}
-.sh-seam{position:absolute;left:0;right:0;height:2px;background:linear-gradient(90deg,transparent,
-  color-mix(in srgb,var(--accent) 55%,transparent),transparent)}
 """
 
 FIT_JS = """
 const tl = gsap.timeline(); window.__scene = tl;
 const el = document.querySelector('.sh-hook'); let fs = parseFloat(getComputedStyle(el).fontSize);
-while ((el.scrollWidth > 952 || el.offsetHeight > 140) && fs > 34) { fs -= 2; el.style.fontSize = fs + 'px'; }
+while ((el.scrollWidth > 952 || el.offsetHeight > 104) && fs > 30) { fs -= 2; el.style.fontSize = fs + 'px'; }
 tl.set({}, {}, 1.9);
 """
 
 
 def chrome_png(p: Project, profile, clip: ShortClip) -> Path:
-    """The static 9:16 frame: brand background, series badge, hook title, seams; the face zone left empty."""
+    """The static 9:16 frame: dark background and the top band (series badge, hook title)."""
     import html as h
 
     from app.services.generation import GP, icon_runtime, renderer
@@ -436,10 +450,9 @@ def chrome_png(p: Project, profile, clip: ShortClip) -> Path:
     words = clip.hook.split()
     hook = " ".join(f'<span class="hl">{h.escape(w)}</span>' if k == len(words) - 1 else h.escape(w)
                     for k, w in enumerate(words))  # fmt: skip
-    html = ('<div class="mh-bg"></div>'
+    html = ('<div class="sh-bg"></div>'
             f'<div class="sh-top">{f"<div class=sh-badge><i class=mh-led></i>{h.escape(badge)}</div>" if badge else ""}'
-            f'<div class="sh-hook">{hook}</div></div>'
-            f'<div class="sh-seam" style="top:{STAGE_Y - 1}px"></div><div class="sh-seam" style="top:{FACE_Y - 1}px"></div>')  # fmt: skip
+            f'<div class="sh-hook">{hook}</div></div>')  # fmt: skip
     return renderer.render_still(html=html, css=CHROME_CSS, js=GP.RUNTIME_JS + icon_runtime() + FIT_JS,
                                  theme_css=style.theme_css(profile, p, "tech", cv), width=W, height=H)  # fmt: skip
 
@@ -492,9 +505,9 @@ def render(short_id: str) -> None:
                 with_face = cam is not None and storage.exists(cam.storage_key)
                 if with_face:
                     inputs += [*at, "-i", str(storage.path(cam.storage_key))]
-                    graph += (f";[3:v]scale={W}:{H - FACE_Y}:force_original_aspect_ratio=increase,"
-                              f"crop={W}:{H - FACE_Y},fps={p.fps},setpts=PTS-STARTPTS[face];"
-                              f"[base][face]overlay=0:{FACE_Y}:eof_action=repeat[withface]")  # fmt: skip
+                    graph += (f";[3:v]scale={FACE_W}:{FACE_H}:force_original_aspect_ratio=increase,"
+                              f"crop={FACE_W}:{FACE_H},fps={p.fps},setpts=PTS-STARTPTS[face];"
+                              f"[base][face]overlay={FACE_X}:{FACE_Y}:eof_action=repeat[withface]")  # fmt: skip
                 graph += (
                     f";[{'withface' if with_face else 'base'}]ass={ass}:fontsdir=/usr/share/fonts/brand[v]"
                 )
@@ -516,7 +529,7 @@ def render(short_id: str) -> None:
                 db.flush()
                 clip.asset_id, clip.status = a.id, "done"
                 clip.meta = {**{k: v for k, v in (clip.meta or {}).items() if k != "stale"}, "rendered_at": datetime.now(UTC).isoformat(timespec="seconds"),
-                             "with_face": with_face, "layout": {"stage": [0, STAGE_Y, STAGE_W, STAGE_H], "face_zone": [0, FACE_Y, W, H - FACE_Y]}}  # fmt: skip
+                             "with_face": with_face, "layout": {"stage": [0, STAGE_Y, STAGE_W, STAGE_H], "face_zone": [FACE_X, FACE_Y, FACE_W, FACE_H]}}  # fmt: skip
             db.commit()
         except Exception as ex:  # noqa: BLE001
             log.exception("short render failed")
