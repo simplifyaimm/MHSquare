@@ -45,7 +45,7 @@ FACE_X, FACE_Y, FACE_W, FACE_H = 64, 1240, 600, 620  # the talking head, over th
 CLEAR_H = FACE_Y - STAGE_Y - 120  # 880: scene content stays above this (captions + face below)
 CAPTION_BOTTOM = FACE_Y - 16  # captions right above the talking head
 MIN_MS, MAX_MS = 20_000, 75_000
-STAGE_VERSION = "s3"  # bump when the template stage render changes: cached segments are then rebuilt
+STAGE_VERSION = "s4"  # bump when the template stage render changes: cached segments are then rebuilt
 FITTED_VERSION = "f3"  # the same for text cards and fitted 16:9 scenes
 # templates are authored on a slightly smaller CSS canvas and rendered at 1.11×: bigger text and cards on a phone
 AUTHOR_W, AUTHOR_H = 972, 1368
@@ -463,6 +463,7 @@ def chrome_png(p: Project, profile, clip: ShortClip) -> Path:
 
 
 END_S = 3.0  # the end card's length, over the last seconds of the panel (face and narration continue)
+END_AUTHOR_H = round((FACE_Y - STAGE_Y) / AUTHOR_SCALE)  # 900: covers the panel down to the talking head
 
 END_CSS = """
 .ec{position:absolute;left:56px;right:56px;top:0;bottom:0;display:flex;flex-direction:column;justify-content:center;
@@ -511,20 +512,20 @@ def end_card(clip: ShortClip, next_clip: ShortClip | None, long_title: str) -> t
 
 def end_card_video(p: Project, profile, clip: ShortClip, next_clip: ShortClip | None, long_title: str,
                    cache: Path) -> Path:  # fmt: skip
-    """The end card as a 1080×880 clip (the panel area above the captions and the talking head). Cached."""
+    """The end card, 1080×1000: the whole panel down to the talking head (captions stay on top). Cached."""
     from app.services.generation import GP, icon_runtime, renderer
 
     html, js = end_card(clip, next_clip, long_title)
-    key = hashlib.blake2b(f"e2|{html}|{p.pillar}".encode(), digest_size=10).hexdigest()
+    key = hashlib.blake2b(f"e3|{html}|{p.pillar}".encode(), digest_size=10).hexdigest()
     out = cache / f"end_{key}.mp4"
     if out.exists():
         return out
     r = renderer.render(html=html, css=END_CSS, js=GP.RUNTIME_JS + "\n" + icon_runtime() + "\n" + js,
-                        theme_css=style.theme_css(profile, p, "tech", _stage_canvas(AUTHOR_CLEAR_H)),
-                        width=AUTHOR_W, height=AUTHOR_CLEAR_H, fps=p.fps, duration_ms=int(END_S * 1000),
+                        theme_css=style.theme_css(profile, p, "tech", _stage_canvas(END_AUTHOR_H)),
+                        width=AUTHOR_W, height=END_AUTHOR_H, fps=p.fps, duration_ms=int(END_S * 1000),
                         scale=AUTHOR_SCALE)  # fmt: skip
     part = out.with_name(f"{out.stem}.{uuid.uuid4().hex[:6]}.part")
-    _ffmpeg("-i", str(r.video), "-vf", f"scale={STAGE_W}:{CLEAR_H},fps={p.fps}", "-an", "-c:v", "libx264",
+    _ffmpeg("-i", str(r.video), "-vf", f"scale={STAGE_W}:{FACE_Y - STAGE_Y},fps={p.fps}", "-an", "-c:v", "libx264",
             "-preset", "veryfast", "-crf", "18", "-pix_fmt", "yuv420p", "-f", "mp4", str(part))  # fmt: skip
     Path(r.video).unlink(missing_ok=True)
     part.replace(out)

@@ -300,9 +300,21 @@ class Beats:
 
     def js(self, drift: bool = True) -> str:
         d = self.ctx.duration
-        head = f"const tl = gsap.timeline(); window.__scene = tl;\nconst D = {d:.3f};\n"
+        head = f"{FIT_BOX_JS}const tl = gsap.timeline(); window.__scene = tl;\nconst D = {d:.3f};\n"
         cam = "tl.fromTo('#cam', {scale:1}, {scale:1.025, duration:D, ease:'none'}, 0);\n" if drift else ""
         return head + cam + "\n".join(self.lines) + "\ntl.set({}, {}, D);"
+
+
+# A laid-out block taller or wider than its content box (many items on a narrow or short canvas) would spill out
+# of the box, over the captions, footer or the talking head: scale it down to fit. Layout sizes (offsetWidth/
+# offsetHeight) ignore the GSAP entrance transforms, so this is measured before any animation runs.
+FIT_BOX_JS = """{
+  const ct = document.getElementById('ct');
+  const kid = ct && ct.children.length === 1 ? ct.firstElementChild : null;
+  const s = kid ? Math.min(1, ct.clientHeight / kid.offsetHeight, ct.clientWidth / kid.offsetWidth) : 1;
+  if (s < 0.995) { kid.style.transform = 'scale(' + s.toFixed(3) + ')'; kid.style.transformOrigin = '50% 50%'; }
+}
+"""
 
 
 def e(s: str) -> str:

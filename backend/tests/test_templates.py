@@ -171,3 +171,9 @@ def test_long_code_stays_readable_and_clear_of_the_face_cam_zone():
     assert fs >= T.MIN_PX and 120 + win_w <= 1498 - 24  # left of the face-cam zone (x 1498)
     short = T.build("code", {"filename": "A.java", "lang": "java", "lines": lines[:6]}, ctx())
     assert "font-size:30px" in short.html and "width:1680px" in short.html  # short code keeps the full box
+
+
+def test_every_scene_scales_an_overflowing_block_back_into_its_box():
+    for name, tpl in T.TEMPLATES.items():
+        sc = T.build(name, tpl.example, ctx(**SHORT))
+        assert sc.js.startswith(T.FIT_BOX_JS) and "ct.children.length === 1" in sc.js, name
