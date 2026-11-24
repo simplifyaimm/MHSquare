@@ -469,7 +469,7 @@ def test_preview_composites_facecam_circle_and_shorts_canvas(fakes, ready_projec
         key = storage.new_key(p.id, "mp4")
         path = storage.path(key)
         subprocess.run(["ffmpeg", "-nostdin", "-v", "error", "-y", "-f", "lavfi", "-i",  # noqa: S603, S607
-                        f"testsrc2=size=640x360:rate=30:duration={DURATION / 1000}", "-pix_fmt", "yuv420p",
+                        f"color=c=white:size=640x360:rate=30:duration={DURATION / 1000}", "-pix_fmt", "yuv420p",
                         "-c:v", "libx264", "-preset", "ultrafast", str(path)], check=True)  # fmt: skip
         db.add(Asset(project_id=p.id, kind=AssetKind.facecam_final, storage_key=key, sha256="x", size=1,
                      mime="video/mp4", meta={"duration_ms": DURATION}))  # fmt: skip
@@ -486,7 +486,7 @@ def test_preview_composites_facecam_circle_and_shorts_canvas(fakes, ready_projec
         p = db.get(Project, _uuid.UUID(pid))
         cx, cy, dia = facecam_geometry(style.canvas(style.active(db), p), 1280, 720)
         prev = storage.path(latest_asset(db, p.id, "preview").storage_key)
-    raw = subprocess.run(["ffmpeg", "-nostdin", "-v", "error", "-ss", "0.5", "-i", str(prev), "-frames:v", "1",  # noqa: S603, S607
+    raw = subprocess.run(["ffmpeg", "-nostdin", "-v", "error", "-ss", "3.0", "-i", str(prev), "-frames:v", "1",  # noqa: S603, S607
                           "-f", "rawvideo", "-pix_fmt", "rgb24", "-"], capture_output=True, check=True).stdout  # fmt: skip
 
     def px(x: float, y: float) -> tuple[int, ...]:
@@ -494,7 +494,8 @@ def test_preview_composites_facecam_circle_and_shorts_canvas(fakes, ready_projec
         return tuple(raw[i : i + 3])
 
     inside, corner = px(cx, cy), px(cx - dia / 2 + 3, cy - dia / 2 + 3)
-    assert max(inside) > 60 and max(corner) < 60, (inside, corner)  # testsrc2 is bright; the brand bg is dark
+    # a plain white camera: its square corner must be cut away (on every frame, not just the first)
+    assert min(inside) > 200 and max(corner) < 60, (inside, corner)
 
     c.post(f"/api/projects/{pid}/generate", json={}, headers=h)
     build_preview(pid)

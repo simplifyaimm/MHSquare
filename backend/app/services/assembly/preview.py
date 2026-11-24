@@ -260,27 +260,42 @@ def _facecam(p, profile, cv: style.Canvas, video: Path, work: Path, W: int, H: i
             cam = latest_asset(db, p.id, AssetKind.facecam_final)
     if cam is not None and storage.exists(cam.storage_key):
         cx, cy, d = facecam_geometry(cv, W, H)
-        ring_w = max(2, round(d * 0.022))  # accent ring, like the creator's photos
-        glow = max(4, round(d * 0.07))  # soft outer glow
+        # a quiet frame: a thin light rim and a soft dark shadow (an accent-coloured glow pulled the eye away
+        # from the content)
+        ring_w = max(2, round(d * 0.012))
+        glow = max(4, round(d * 0.06))
         size = d + 2 * (ring_w + 3 * glow)
         c, r_in, r_out = size / 2, d / 2 - 1, d / 2 + ring_w
-        acc = style.accent(profile, p).lstrip("#")
         # the circle mask and the ring never change: draw each ONCE as an image (a per-pixel geq on every frame
         # of a 15-minute video was most of the preview time); the overlays repeat the single frame
         mask, ring = work / "mask.png", work / "ring.png"
         _ffmpeg("-f", "lavfi", "-i", f"color=c=black:s={d}x{d}", "-vf",
                 f"format=gray,geq=lum='if(lte(hypot(X-{d / 2},Y-{d / 2}),{d / 2 - 1}),255,0)'",
                 "-frames:v", "1", str(mask))  # fmt: skip
-        # ring + gaussian-ish glow outside it (alpha only), transparent inside
-        _ffmpeg("-f", "lavfi", "-i", f"color=c=0x{acc}:s={size}x{size}", "-vf",
-                f"format=yuva420p,geq=lum='p(X,Y)':cb='p(X,Y)':cr='p(X,Y)':a='if(lt(hypot(X-{c},Y-{c}),{r_in}),0,"
-                f"if(lte(hypot(X-{c},Y-{c}),{r_out}),255,230*exp(-pow(hypot(X-{c},Y-{c})-{r_out},2)/{2 * glow * glow})))'",
+        # rim (white, 40 %) + gaussian-ish dark shadow outside it, transparent inside
+        rr = f"hypot(X-{c},Y-{c})"
+        rim = f"lte({rr},{r_out})"
+        _ffmpeg("-f", "lavfi", "-i", f"color=c=black:s={size}x{size}", "-vf",
+                f"format=rgba,geq=r='if({rim},255,0)':g='if({rim},255,0)':b='if({rim},255,0)':"
+                f"a='if(lt({rr},{r_in}),0,if({rim},100,150*exp(-pow({rr}-{r_out},2)/{2 * glow * glow})))'",
                 "-frames:v", "1", str(ring))  # fmt: skip
-        inputs += ["-i", str(storage.path(cam.storage_key)), "-i", str(mask), "-i", str(ring)]
+        # the still mask and ring are looped for the whole video (a single frame is only applied to frame 1)
+        inputs += [
+            "-i",
+            str(storage.path(cam.storage_key)),
+            "-loop",
+            "1",
+            "-i",
+            str(mask),
+            "-loop",
+            "1",
+            "-i",
+            str(ring),
+        ]
         chains += [
             f"[1:v]crop='min(iw,ih)':'min(iw,ih)',scale={d}:{d},format=yuva420p[c0]",
             "[c0][2:v]alphamerge[cam]",
-            f"[{last}][3:v]overlay={int(cx - size / 2)}:{int(cy - size / 2)}[v1]",
+            f"[{last}][3:v]overlay={int(cx - size / 2)}:{int(cy - size / 2)}:shortest=1[v1]",
             f"[v1][cam]overlay={int(cx - d / 2)}:{int(cy - d / 2)}:eof_action=pass[v2]",
         ]
         last = "v2"
@@ -294,11 +309,15 @@ def _facecam(p, profile, cv: style.Canvas, video: Path, work: Path, W: int, H: i
 
 def facecam_geometry(cv: style.Canvas, W: int, H: int) -> tuple[float, float, int]:  # noqa: N803
     """Centre (x, y) and diameter of the face-cam circle in output pixels."""
-    if cv.safe_zones:  # long-form, or shorts with a full 9:16 canvas: centred in the keep-clear zone
+    if not cv.is_short:  # long-form: 25 % of the frame height, tucked into the bottom-right corner
+        d = int(H * 0.25) // 2 * 2
+        m = round(H * 0.022)
+        return W - m - d / 2, H - m - d / 2, d
+    if cv.safe_zones:  # shorts with a full 9:16 canvas: centred in the keep-clear zone
         z = cv.safe_zones[0]
         sx = W / cv.export_w
-        d = int(min(z["w"], z["h"]) * sx * 0.82) // 2 * 2
-        return (z["x"] + z["w"] / 2) * sx, (z["y"] + cv.offset_y + z["h"] / 2) * sx, d
+        d = int(min(z["w"], z["h"]) * sx * 0.9) // 2 * 2  # a margin from the frame edge
+        return (z["x"] + z["w"] / 2) * sx, (z["y"] + cv.offset_y + z["h"] * 0.46) * sx, d
     # shorts with a 3:4 canvas: in the bottom band under the animation, right-aligned
     sx = W / cv.export_w
     band = cv.offset_y * sx
