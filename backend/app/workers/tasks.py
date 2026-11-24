@@ -72,7 +72,12 @@ def _recover_on_boot(sender=None, **_) -> None:
         return
     for attempt in range(12):  # Postgres may still be starting
         try:
-            n, m = generation.recover_interrupted(), preview.recover_interrupted()
+            from app.services import shorts
+
+            n, m = (
+                generation.recover_interrupted(),
+                preview.recover_interrupted() + shorts.recover_interrupted(),
+            )
             break
         except OperationalError:
             time.sleep(5 * (attempt + 1))
@@ -80,7 +85,7 @@ def _recover_on_boot(sender=None, **_) -> None:
         log.error("could not reach the database to recover interrupted work")
         return
     if n or m:
-        log.warning("marked %d interrupted takes and %d interrupted preview builds as failed", n, m)
+        log.warning("marked %d interrupted takes and %d interrupted builds/Shorts as failed", n, m)
 
 
 @celery_app.task(name="preview.build", **DB_RETRY)

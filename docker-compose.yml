@@ -145,7 +145,7 @@ services:
     security_opt: ["no-new-privileges:true"]
     cpus: 4
     mem_limit: 4g
-    pids_limit: 512
+    pids_limit: 1024  # two concurrent Chromium renders use ~400 threads; 512 was hit under load
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request;urllib.request.urlopen('http://localhost:8000/health')"]
       interval: 15s

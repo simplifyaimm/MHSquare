@@ -202,3 +202,25 @@ def test_bell_icons_are_in_the_library():
     from app.services.generation.icons import icons
 
     assert {"bell", "bell-ring", "user-plus"} <= set(icons())
+
+
+def test_worker_boot_fails_a_short_that_died_mid_render(ready_project):  # noqa: F811
+    import uuid as _uuid
+
+    from app.core.db import get_sessionmaker
+    from app.models import ShortClip
+
+    _, _, pid = ready_project
+    with get_sessionmaker()() as db:
+        db.add(ShortClip(project_id=_uuid.UUID(pid), index=1, shot_from=0, shot_to=0, start_ms=0, end_ms=1000,
+                         status="rendering", hashtags=[], meta={}))  # fmt: skip
+        db.add(ShortClip(project_id=_uuid.UUID(pid), index=2, shot_from=1, shot_to=1, start_ms=1000, end_ms=2000,
+                         status="queued", hashtags=[], meta={}))  # fmt: skip
+        db.commit()
+    assert SH.recover_interrupted() == 1
+    with get_sessionmaker()() as db:
+        st = {
+            c.index: (c.status, c.error)
+            for c in db.query(ShortClip).filter(ShortClip.project_id == _uuid.UUID(pid))
+        }
+    assert st[1][0] == "failed" and "Interrupted" in st[1][1] and st[2] == ("queued", None)

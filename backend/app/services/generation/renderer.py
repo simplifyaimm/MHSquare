@@ -19,16 +19,24 @@ class RenderError(RuntimeError):
 
 
 BUSY_WAIT_S = 1800  # how long a take may wait for a free renderer slot (whole-video batches queue up)
+CONNECT_RETRIES = 3  # a dropped connection is retried this many times before the render fails
 RENDER_TIMEOUT_S = 1800  # one render once it has a slot (renderer caps itself at max(180 s, 2 s/frame))
 
 
 def _post_render(body: dict, timeout: float) -> httpx.Response:
     """POST /render, waiting (outside the render timeout) while the renderer reports every slot busy."""
     url = f"{get_settings().motion_renderer_url}/render"
-    deadline, delay = time.monotonic() + BUSY_WAIT_S, 2.0
+    deadline, delay, dropped = time.monotonic() + BUSY_WAIT_S, 2.0, 0
     while True:
         try:
             r = httpx.post(url, json=body, timeout=timeout)
+        except (httpx.ConnectError, httpx.RemoteProtocolError) as e:
+            # a dropped connection (renderer restarting, or out of threads for a moment): retry a few times
+            dropped += 1
+            if dropped > CONNECT_RETRIES:
+                raise RenderError(f"motion renderer unreachable: {e}") from e
+            time.sleep(3 * dropped + random.uniform(0, 1))  # noqa: S311 - jitter, not crypto
+            continue
         except httpx.HTTPError as e:
             raise RenderError(f"motion renderer unreachable: {e}") from e
         if r.status_code != 503 or not _is_busy(r):

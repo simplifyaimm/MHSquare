@@ -660,3 +660,14 @@ def as_json(clip: ShortClip) -> dict:
             "status": clip.status, "error": clip.error, "stale": bool((clip.meta or {}).get("stale")),
             "with_face": bool((clip.meta or {}).get("with_face")),
             "url": signed_media_url(clip.asset_id) if clip.asset_id else None}  # fmt: skip
+
+
+def recover_interrupted() -> int:
+    """Worker boot: a Short still 'rendering' died with its worker. Mark it failed so it can be rendered again
+    ('queued' ones keep their task in the durable queue and will run)."""
+    with get_sessionmaker()() as db:
+        stuck = list(db.scalars(select(ShortClip).where(ShortClip.status == "rendering")))
+        for c in stuck:
+            c.status, c.error = "failed", "Interrupted (worker or Docker restarted). Render again."
+        db.commit()
+        return len(stuck)

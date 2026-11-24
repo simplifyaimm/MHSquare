@@ -36,3 +36,32 @@ def test_busy_for_too_long_fails_clearly(monkeypatch):
     monkeypatch.setattr(renderer.time, "sleep", lambda s: None)
     with pytest.raises(renderer.RenderError, match="busy"):
         renderer._post_render({"job_id": "abcdef"}, 10)
+
+
+def test_dropped_connection_is_retried_then_succeeds(monkeypatch):
+    replies = [renderer.httpx.RemoteProtocolError("Server disconnected without sending a response."),
+               renderer.httpx.ConnectError("refused"), _resp(200, {"ok": True})]  # fmt: skip
+
+    def post(*a, **kw):
+        r = replies.pop(0)
+        if isinstance(r, Exception):
+            raise r
+        return r
+
+    monkeypatch.setattr(renderer.httpx, "post", post)
+    monkeypatch.setattr(renderer.time, "sleep", lambda s: None)
+    assert renderer._post_render({"job_id": "abcdef"}, 10).status_code == 200 and not replies
+
+
+def test_a_renderer_that_stays_down_fails_after_a_few_tries(monkeypatch):
+    calls = []
+
+    def post(*a, **kw):
+        calls.append(1)
+        raise renderer.httpx.ConnectError("refused")
+
+    monkeypatch.setattr(renderer.httpx, "post", post)
+    monkeypatch.setattr(renderer.time, "sleep", lambda s: None)
+    with pytest.raises(renderer.RenderError, match="unreachable"):
+        renderer._post_render({"job_id": "abcdef"}, 10)
+    assert len(calls) == renderer.CONNECT_RETRIES + 1
